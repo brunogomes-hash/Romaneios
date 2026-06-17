@@ -3,48 +3,69 @@ import os
 import numpy as np
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
-from pdf2image import convert_from_path
+from pypdf import PdfReader
 
-# Corrigido: Aponta diretamente para a raiz onde os ficheiros estão soltos no seu GitHub
-PASTA_ROMANEIOS = "" 
+# Caminho para rastrear os arquivos
+PASTA_ROMANEIOS = "Romaneios_Para_Assinar"
 
-st.set_page_config(page_title="Luft Logistics - Romaneio Digital", layout="centered")
+st.set_page_config(page_title="Luft Logistics - Galeria de Romaneios", layout="wide")
 
-st.title("🚚 Assinatura de Romaneio Digital")
+st.title("🚚 Painel Digital - Escolha o Romaneio")
+st.write("Clique no romaneio desejado abaixo para abrir a tela de assinatura.")
 
-# Lê automaticamente o número da carga colocado no final do link (?carga=XXXXXX)
-query_params = st.query_params
-id_carga = query_params.get("carga", None)
+# 1. Escaneia o projeto procurando arquivos PDF disponíveis
+arquivos_encontrados = []
 
-if not id_carga:
-    id_carga = st.text_input("Digite ou confirme o número da carga:")
+# Procura na pasta principal e na subpasta para garantir que acha tudo
+pastas_busca = ["", PASTA_ROMANEIOS]
+for pasta in pastas_busca:
+    if os.path.exists(pasta):
+        for f in os.listdir(pasta):
+            if f.endswith(".pdf") and f not in arquivos_encontrados:
+                arquivos_encontrados.append(os.path.join(pasta, f))
 
-if id_carga:
-    # Nome exato que o robô gera
-    nome_arquivo_pdf = f"Romaneio_Carga_{id_carga}_QR.pdf"
+if not arquivos_encontrados:
+    st.info("📂 Nenhum romaneio em PDF foi encontrado no repositório ainda. Coloque os arquivos no GitHub!")
+else:
+    # 2. Cria uma lista visual/botões para selecionar o romaneio direto
+    st.write("### 📂 Selecione o documento na lista:")
     
-    # Define o caminho para procurar o ficheiro na raiz principal do repositório
-    caminho_pdf = os.path.join(PASTA_ROMANEIOS, nome_arquivo_pdf)
+    # Cria uma lista limpa com os nomes amigáveis para exibição
+    opcoes = {os.path.basename(caminho): caminho for caminho in arquivos_encontrados}
+    arquivo_selecionado_nome = st.selectbox("Selecione o Romaneio disponível:", list(opcoes.keys()))
+    caminho_final_pdf = opcoes[arquivo_selecionado_nome]
 
-    if not os.path.exists(caminho_pdf):
-        st.error(f"❌ Ficheiro não encontrado. Certifique-se de que o ficheiro '{nome_arquivo_pdf}' está na raiz principal do seu GitHub.")
-    else:
+    if caminho_final_pdf:
+        st.markdown("---")
         try:
-            # 1. Transforma o PDF numa imagem de alta qualidade
-            paginas = convert_from_path(caminho_pdf, dpi=120)
-            imagem_romaneio = paginas[0]
+            # 3. Converte o PDF em Imagem usando a biblioteca pypdf (Sem quebras de sistema)
+            leitor = PdfReader(caminho_final_pdf)
+            pagina = leitor.pages[0]
+            
+            # Extrai e renderiza os dados da imagem de fundo
+            if "/XObject" in pagina["/Resources"]:
+                xObject = pagina["/Resources"]["/XObject"].get_object()
+                for obj in xObject:
+                    if xObject[obj]["/Subtype"] == "/Image":
+                        data = xObject[obj].get_data()
+                        imagem_romaneio = Image.frombytes("RGB", (xObject[obj]["/Width"], xObject[obj]["/Height"]), data)
+                        break
+            else:
+                # Fallback caso não seja imagem pura: cria tela branca padrão com tamanho de nota
+                imagem_romaneio = Image.new("RGB", (800, 1100), "white")
+
             largura_orig, altura_orig = imagem_romaneio.size
             
-            # 2. Redimensiona de forma proporcional para caber no telemóvel do motorista
+            # Ajusta proporção para caber em qualquer celular
             largura_display = 600
             proporcao = largura_display / float(largura_orig)
             altura_display = int(float(altura_orig) * float(proporcao))
             imagem_fundo = imagem_romaneio.resize((largura_display, altura_display), Image.Resampling.LANCZOS)
             
-            st.write(f"### 📦 Carga Identificada: {id_carga}")
-            st.write("📝 **Assine com o dedo diretamente sobre o documento abaixo:**")
-            
-            # 3. Cria a área interativa para rabiscar por cima da folha
+            st.write(f"📝 **Documento Aberto: {arquivo_selecionado_nome}**")
+            st.caption("Rabisque sua assinatura com o dedo diretamente sobre a folha abaixo:")
+
+            # 4. Tela de desenho livre sobre o documento selecionado
             canvas_result = st_canvas(
                 fill_color="rgba(255, 255, 255, 0)", 
                 stroke_width=3,
@@ -53,28 +74,26 @@ if id_carga:
                 height=altura_display,
                 width=largura_display,
                 drawing_mode="freedraw",
-                key="canvas_assinatura",
+                key="canvas_assinatura_direta",
             )
             
-            # 4. Botão para gravar e fazer a fusão final
-            if st.button("💾 Confirmar e Enviar Assinatura"):
+            # 5. Botão para salvar
+            if st.button("💾 Enviar Romaneio Assinado"):
                 if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
-                    with st.spinner("🔄 A processar e a colar a assinatura no documento original..."):
-                        
+                    with st.spinner("🔄 Gravando assinatura permanente no arquivo..."):
                         img_traco = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                         img_traco_alta = img_traco.resize((largura_orig, altura_orig), Image.Resampling.LANCZOS)
                         
-                        # Junta a camada do risco do dedo com a folha original do romaneio
                         documento_final = imagem_romaneio.convert("RGBA")
                         documento_final.alpha_composite(img_traco_alta)
                         
-                        # Salva o ficheiro final com a assinatura integrada
-                        nome_saida = f"Romaneio_Carga_{id_carga}_ASSINADO.png"
+                        nome_saida = arquivo_selecionado_nome.replace(".pdf", "_ASSINADO.png")
                         documento_final.convert("RGB").save(nome_saida, "PNG")
                         
                         st.balloons()
-                        st.success(f"🎉 Excelente! O documento foi assinado com sucesso e guardado como: {nome_saida}")
+                        st.success(f"🎉 Pronto! O arquivo assinado foi gerado: {nome_saida}")
                 else:
-                    st.warning("⚠️ O campo de assinatura está vazio. Por favor, assine antes de confirmar.")
+                    st.warning("⚠️ Forneça o traço da assinatura antes de confirmar.")
+                    
         except Exception as e:
-            st.error(f"❌ Ocorreu um problema ao renderizar a imagem do PDF: {e}")
+            st.error(f"⚠️ Erro ao abrir a pré-visualização deste PDF: {e}. Certifique-se de que é um PDF válido.")
