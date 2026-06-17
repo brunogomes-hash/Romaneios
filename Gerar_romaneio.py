@@ -14,12 +14,15 @@ os.makedirs(PASTA_ASSINADOS, exist_ok=True)
 st.set_page_config(page_title="Luft Logistics - Painel de Romaneios", layout="wide")
 st.title("🚚 Painel Digital de Romaneios")
 
-# Controla o reset do quadro de assinatura na memória do sistema para limpar a tela
+# Controla o reset do quadro de assinatura na memória do sistema
 if "versão_canvas" not in st.session_state:
     st.session_state["versão_canvas"] = 0
 
 aba_pendentes, aba_assinados = st.tabs(["📝 Romaneios Pendentes", "✅ Romaneios Assinados"])
 
+# ==========================================
+# ABA 1: ROMANEIOS PENDENTES
+# ==========================================
 with aba_pendentes:
     st.subheader("Documentos aguardando assinatura do motorista")
     
@@ -42,7 +45,6 @@ with aba_pendentes:
         st.markdown("---")
         st.write("✍️ **ASSINE ABAIXO (Use o dedo dentro do quadro branco):**")
         
-        # A chave muda dinamicamente após o clique para limpar o quadro branco
         chave_canvas = f"canvas_smart_final_{st.session_state['versão_canvas']}"
         
         canvas_result = st_canvas(
@@ -60,18 +62,15 @@ with aba_pendentes:
             if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
                 with st.spinner("🔍 Analisando documento e alinhando assinatura..."):
                     try:
-                        # 1. Abre o romaneio original (mantém o arquivo original intacto)
                         imagem_original = Image.open(caminho_pendente).convert("RGBA")
                         largura_orig, altura_orig = imagem_original.size
                         
-                        # 2. Converte o traço do motorista e remove as rebarbas vazias
                         img_traco_bruto = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                         bbox_assinatura = img_traco_bruto.getbbox()
                         
                         if bbox_assinatura:
                             img_assinatura_cortada = img_traco_bruto.crop(bbox_assinatura)
                             
-                            # Escaneamento Automático Inteligente
                             img_cinza = imagem_original.convert("L")
                             matriz_pixels = np.array(img_cinza)
                             
@@ -85,13 +84,11 @@ with aba_pendentes:
                             else:
                                 pos_y_detectado = int(altura_orig * 0.31)
                             
-                            # Ajuste dimensional para caber no espaço em branco
                             largura_maxima = int(largura_orig * 0.30)
                             altura_maxima = int(altura_orig * 0.04)
                             img_assinatura_cortada.thumbnail((largura_maxima, altura_maxima), Image.Resampling.LANCZOS)
                             largura_ass_final, altura_ass_final = img_assinatura_cortada.size
                             
-                            # Montagem da colagem
                             camada_colagem = Image.new("RGBA", (largura_orig, altura_orig), (255, 255, 255, 0))
                             pos_x = int(largura_orig * 0.06)
                             pos_y_colagem = pos_y_detectado - altura_ass_final - 4
@@ -99,14 +96,13 @@ with aba_pendentes:
                             camada_colagem.paste(img_assinatura_cortada, (pos_x, pos_y_colagem), img_assinatura_cortada)
                             imagem_concluida = Image.alpha_composite(imagem_original, camada_colagem).convert("RGB")
                             
-                            # SOLUÇÃO PARA NÃO REPETIR: Nome padrão fixo. Se assinar de novo, atualiza o mesmo arquivo.
+                            # Nome fixo estável (grava por cima se repetir)
                             nome_base = arquivo_selecionado.split(".")[0]
                             nome_saida = f"{nome_base}_ASSINADO.png"
                             
                             caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
                             imagem_concluida.save(caminho_salvamento, "PNG")
                             
-                            # Altera o contador para resetar o quadro de desenho e limpar a tela
                             st.session_state["versão_canvas"] += 1
                             
                             st.balloons()
@@ -119,8 +115,12 @@ with aba_pendentes:
             else:
                 st.warning("⚠️ Por favor, faça a assinatura antes de clicar em enviar.")
 
+# ==========================================
+# ABA 2: HISTÓRICO / REMOÇÃO DE DUPLICADOS
+# ==========================================
 with aba_assinados:
     st.subheader("Histórico geral de documentos assinados no servidor")
+    
     arquivos_assinados = []
     if os.path.exists(PASTA_ASSINADOS):
         for f in os.listdir(PASTA_ASSINADOS):
@@ -130,6 +130,24 @@ with aba_assinados:
     if not arquivos_assinados:
         st.info("📂 Nenhum documento assinado armazenado no servidor.")
     else:
-        arquivo_ver = st.selectbox("Selecione qual romaneio deseja visualizar:", arquivos_assinados, key="sb_assinados_geral")
-        caminho_assinado_ver = os.path.join(PASTA_ASSINADOS, arquivo_ver)
+        # Criando duas colunas: uma para o seletor e outra para o botão de apagar
+        col_selecionar, col_botao = st.columns([3, 1])
+        
+        with col_selecionar:
+            arquivo_ver = st.selectbox("Selecione qual romaneio deseja visualizar:", arquivos_assinados, key="sb_assinados_geral")
+            caminho_assinado_ver = os.path.join(PASTA_ASSINADOS, arquivo_ver)
+            
+        with col_botao:
+            st.write("") # Apenas para alinhar verticalmente com o selectbox
+            st.write("") 
+            # BOTÃO AUTOMÁTICO PARA DELETAR O ARQUIVO DUPLICADO SELECIONADO
+            if st.button("🗑️ Apagar este arquivo"):
+                try:
+                    os.remove(caminho_assinado_ver)
+                    st.success(f"Arquivo deletado!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao deletar: {e}")
+                    
+        st.markdown("---")
         st.image(caminho_assinado_ver, use_container_width=True)
