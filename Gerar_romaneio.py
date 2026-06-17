@@ -3,6 +3,7 @@ import os
 import numpy as np
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
+from datetime import datetime  # Importado para gerar nomes únicos por segundo
 
 # Configuração de diretórios
 PASTA_PENDENTES = "Romaneios_Para_Assinar"
@@ -26,7 +27,7 @@ with aba_pendentes:
                 arquivos_pendentes.append(f)
                 
     if not arquivos_pendentes:
-        st.info("🎉 Nenhum romaneio pendente! Todos os documentos foram assinados.")
+        st.info("🎉 Nenhum romaneio pendente! Insira modelos na pasta Romaneios_Para_Assinar.")
     else:
         arquivo_selecionado = st.selectbox("Selecione o Romaneio para Assinar:", arquivos_pendentes, key="sb_pendentes")
         caminho_pendente = os.path.join(PASTA_PENDENTES, arquivo_selecionado)
@@ -46,7 +47,7 @@ with aba_pendentes:
             height=150,
             width=500,
             drawing_mode="freedraw",
-            key="canvas_reconhecimento_automatico_v11",
+            key="canvas_reconhecimento_automatico_multiplus_v12",
         )
         
         if st.button("💾 Enviar Romaneio Assinado"):
@@ -67,12 +68,9 @@ with aba_pendentes:
                             # ==========================================
                             # ESCANEAMENTO AUTOMÁTICO DO DOCUMENTO
                             # ==========================================
-                            # Convertemos o romaneio para escala de cinza para achar as linhas pretas textuais
                             img_cinza = imagem_original.convert("L")
                             matriz_pixels = np.array(img_cinza)
                             
-                            # Varre a região provável do topo (entre 20% e 45% da página) procurando 
-                            # a maior concentração de linhas escuras horizontais (onde fica o campo Nome/Linha)
                             y_inicio_busca = int(altura_orig * 0.20)
                             y_fim_busca = int(altura_orig * 0.45)
                             
@@ -80,16 +78,13 @@ with aba_pendentes:
                             linhas_escuras = np.where(matriz_pixels[y_inicio_busca:y_fim_busca, :].mean(axis=1) < 200)[0]
                             
                             if len(linhas_escuras) > 0:
-                                # Identifica o local exato da linha preta do campo de escrita
                                 pos_y_detectado = y_inicio_busca + linhas_escuras[-1]
                             else:
-                                # Caso não detecte por segurança (imagem borrada), usa o padrão seguro
                                 pos_y_detectado = int(altura_orig * 0.31)
                             
                             # ==========================================
                             # AJUSTE PROPORCIONAL DA ASSINATURA
                             # ==========================================
-                            # Redimensiona para um tamanho harmônico que cabe em qualquer lacuna
                             largura_maxima = int(largura_orig * 0.30)
                             altura_maxima = int(altura_orig * 0.04)
                             img_assinatura_cortada.thumbnail((largura_maxima, altura_maxima), Image.Resampling.LANCZOS)
@@ -97,25 +92,28 @@ with aba_pendentes:
                             
                             # 3. Faz a colagem no local encontrado
                             camada_colagem = Image.new("RGBA", (largura_orig, altura_orig), (255, 255, 255, 0))
-                            
-                            # Alinha horizontalmente na margem do canhoto
                             pos_x = int(largura_orig * 0.06)
-                            
-                            # Cola exatamente ACIMA do ponto Y que o robô escaneou e detectou na folha
                             pos_y_colagem = pos_y_detectado - altura_ass_final - 4
                             
                             camada_colagem.paste(img_assinatura_cortada, (pos_x, pos_y_colagem), img_assinatura_cortada)
                             imagem_concluida = Image.alpha_composite(imagem_original, camada_colagem).convert("RGB")
                             
-                            # 4. Salva e atualiza
-                            nome_saida = arquivo_selecionado.split(".")[0] + "_ASSINADO.png"
+                            # ==========================================
+                            # ARQUIVOS ÚNICOS COM TIMESTAMP (NOVO)
+                            # ==========================================
+                            # Adiciona hora, minuto e segundo (HHMMSS) para salvar um arquivo novo a cada clique
+                            timestamp = datetime.now().strftime("%H%M%S")
+                            nome_base = arquivo_selecionado.split(".")[0]
+                            nome_saida = f"{nome_base}_ASSINADO_{timestamp}.png"
+                            
                             caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
                             imagem_concluida.save(caminho_salvamento, "PNG")
                             
-                            os.remove(caminho_pendente)
+                            # SOLUÇÃO AQUI: Removemos a linha que deletava o arquivo pendente.
+                            # Agora o modelo limpo fica para sempre na lista para novos preenchimentos.
                             
                             st.balloons()
-                            st.success("🎉 Sensacional! O sistema localizou o campo e colou o documento com perfeição.")
+                            st.success(f"🎉 Sensacional! Salvo como um novo arquivo no histórico: {nome_saida}")
                             st.rerun()
                         else:
                             st.error("❌ Quadro em branco. Assine antes de clicar em enviar.")
@@ -133,6 +131,7 @@ with aba_assinados:
     if not arquivos_assinados:
         st.info("📂 Nenhum documento assinado armazenado no servidor.")
     else:
-        arquivo_ver = st.selectbox("Selecione um romaneio para visualizar o protocolo:", arquivos_assinados, key="sb_assinados_geral")
+        # Exibe a lista completa de todas as assinaturas geradas no dia por ordem de horário
+        arquivo_ver = st.selectbox("Selecione qual versão do romaneio deseja visualizar:", arquivos_assinados, key="sb_assinados_geral")
         caminho_assinado_ver = os.path.join(PASTA_ASSINADOS, arquivo_ver)
         st.image(caminho_assinado_ver, use_container_width=True)
