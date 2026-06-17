@@ -44,7 +44,7 @@ with aba_pendentes:
         st.write("✍️ **ASSINE ABAIXO (Use o dedo dentro do quadro branco):**")
         
         # A chave muda dinamicamente após o envio para forçar o quadro a limpar na tela
-        chave_canvas = f"canvas_smart_v13_{st.session_state['versão_canvas']}"
+        chave_canvas = f"canvas_smart_v14_{st.session_state['versão_canvas']}"
         
         canvas_result = st_canvas(
             fill_color="rgba(255, 255, 255, 0)", 
@@ -81,8 +81,9 @@ with aba_pendentes:
                             
                             linhas_escuras = np.where(matriz_pixels[y_inicio_busca:y_fim_busca, :].mean(axis=1) < 200)[0]
                             
+                            # CORRIGIDO: Agora usa a variável certa 'linhas_escuras'
                             if len(linhas_escuras) > 0:
-                                pos_y_detectado = y_inicio_busca + lines_escuras[-1]
+                                pos_y_detectado = y_inicio_busca + linhas_escuras[-1]
                             else:
                                 pos_y_detectado = int(altura_orig * 0.31)
                             
@@ -108,8 +109,7 @@ with aba_pendentes:
                             caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
                             imagem_concluida.save(caminho_salvamento, "PNG")
                             
-                            # O SEGREDO DO RESET AQUI: 
-                            # Altera o contador para mudar a chave do canvas e forçar o quadro a limpar
+                            # Altera o contador para mudar a chave do canvas e limpar a tela do motorista
                             st.session_state["versão_canvas"] += 1
                             
                             st.balloons()
