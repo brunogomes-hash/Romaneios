@@ -38,7 +38,6 @@ with aba_pendentes:
         st.markdown("---")
         st.write("✍️ **ASSINE ABAIXO (Use o dedo dentro do quadro branco):**")
         
-        # Bloco estável do Canvas para coleta do desenho
         canvas_result = st_canvas(
             fill_color="rgba(255, 255, 255, 0)", 
             stroke_width=4,
@@ -47,51 +46,68 @@ with aba_pendentes:
             height=150,
             width=500,
             drawing_mode="freedraw",
-            key="canvas_alinhamento_matematico_v10",
+            key="canvas_reconhecimento_automatico_v11",
         )
         
         if st.button("💾 Enviar Romaneio Assinado"):
             if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
-                with st.spinner("🔄 Gravando assinatura perfeitamente no espaço demarcado..."):
+                with st.spinner("🔍 Analisando documento e alinhando assinatura automaticamente..."):
                     try:
-                        # 1. Abre o romaneio base original
+                        # 1. Abre o romaneio original
                         imagem_original = Image.open(caminho_pendente).convert("RGBA")
                         largura_orig, altura_orig = imagem_original.size
                         
-                        # 2. Converte o canvas para imagem manipulável
+                        # 2. Converte o traço do motorista e remove rebarbas vazias
                         img_traco_bruto = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
+                        bbox_assinatura = img_traco_bruto.getbbox()
                         
-                        # 3. Captura estritamente os pixels desenhados tirando as rebarbas
-                        bbox = img_traco_bruto.getbbox()
-                        if bbox:
-                            img_assinatura_cortada = img_traco_bruto.crop(bbox)
+                        if bbox_assinatura:
+                            img_assinatura_cortada = img_traco_bruto.crop(bbox_assinatura)
                             
-                            # --- LIMITES RÍGIDOS DE DIMENSÃO (BLOQUEIO ANTI-INVASÃO) ---
-                            # Restringe a assinatura a um tamanho compacto e seguro para caber na lacuna branca
-                            largura_maxima = int(largura_orig * 0.32)
-                            altura_maxima = int(altura_orig * 0.032)  # Trava estrita de altura para nunca encostar no texto de cima
+                            # ==========================================
+                            # ESCANEAMENTO AUTOMÁTICO DO DOCUMENTO
+                            # ==========================================
+                            # Convertemos o romaneio para escala de cinza para achar as linhas pretas textuais
+                            img_cinza = imagem_original.convert("L")
+                            matriz_pixels = np.array(img_cinza)
                             
+                            # Varre a região provável do topo (entre 20% e 45% da página) procurando 
+                            # a maior concentração de linhas escuras horizontais (onde fica o campo Nome/Linha)
+                            y_inicio_busca = int(altura_orig * 0.20)
+                            y_fim_busca = int(altura_orig * 0.45)
+                            
+                            # Encontra a linha horizontal preta com base na intensidade dos pixels
+                            linhas_escuras = np.where(matriz_pixels[y_inicio_busca:y_fim_busca, :].mean(axis=1) < 200)[0]
+                            
+                            if len(linhas_escuras) > 0:
+                                # Identifica o local exato da linha preta do campo de escrita
+                                pos_y_detectado = y_inicio_busca + linhas_escuras[-1]
+                            else:
+                                # Caso não detecte por segurança (imagem borrada), usa o padrão seguro
+                                pos_y_detectado = int(altura_orig * 0.31)
+                            
+                            # ==========================================
+                            # AJUSTE PROPORCIONAL DA ASSINATURA
+                            # ==========================================
+                            # Redimensiona para um tamanho harmônico que cabe em qualquer lacuna
+                            largura_maxima = int(largura_orig * 0.30)
+                            altura_maxima = int(altura_orig * 0.04)
                             img_assinatura_cortada.thumbnail((largura_maxima, altura_maxima), Image.Resampling.LANCZOS)
                             largura_ass_final, altura_ass_final = img_assinatura_cortada.size
                             
-                            # 4. Cria matriz transparente de sobreposição
+                            # 3. Faz a colagem no local encontrado
                             camada_colagem = Image.new("RGBA", (largura_orig, altura_orig), (255, 255, 255, 0))
                             
-                            # --- CÁLCULO DE POSICIONAMENTO ENCOSTANDO NA LINHA ---
-                            # X: Alinhado logo no começo da linha esquerda (Margem limpa)
-                            pos_x = int(largura_orig * 0.05)
+                            # Alinha horizontalmente na margem do canhoto
+                            pos_x = int(largura_orig * 0.06)
                             
-                            # Y: O pixel exato onde está a linha "Nome:" é 31.2% da altura total do documento
-                            pos_y_linha_nome = int(altura_orig * 0.312)
+                            # Cola exatamente ACIMA do ponto Y que o robô escaneou e detectou na folha
+                            pos_y_colagem = pos_y_detectado - altura_ass_final - 4
                             
-                            # A base da assinatura pousa exatamente 3 pixels acima da linha preta
-                            pos_y_colagem = pos_y_linha_nome - altura_ass_final - 3
-                            
-                            # Executa a fusão
                             camada_colagem.paste(img_assinatura_cortada, (pos_x, pos_y_colagem), img_assinatura_cortada)
                             imagem_concluida = Image.alpha_composite(imagem_original, camada_colagem).convert("RGB")
                             
-                            # 5. Salva permanentemente e limpa a fila
+                            # 4. Salva e atualiza
                             nome_saida = arquivo_selecionado.split(".")[0] + "_ASSINADO.png"
                             caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
                             imagem_concluida.save(caminho_salvamento, "PNG")
@@ -99,14 +115,12 @@ with aba_pendentes:
                             os.remove(caminho_pendente)
                             
                             st.balloons()
-                            st.success("🎉 Perfeito! Romaneio gravado exatamente dentro do limite do campo.")
+                            st.success("🎉 Sensacional! O sistema localizou o campo e colou o documento com perfeição.")
                             st.rerun()
                         else:
-                            st.error("❌ Nenhum traço detectado. Assine novamente no quadro branco.")
+                            st.error("❌ Quadro em branco. Assine antes de clicar em enviar.")
                     except Exception as e:
-                        st.error(f"❌ Erro operacional: {e}")
-            else:
-                st.warning("⚠️ Por favor, faça a assinatura antes de clicar em enviar.")
+                        st.error(f"❌ Erro na varredura inteligente: {e}")
 
 with aba_assinados:
     st.subheader("Histórico geral de documentos assinados no servidor")
