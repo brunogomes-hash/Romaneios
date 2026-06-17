@@ -1,0 +1,6 @@
+streamlit
+streamlit-drawable-canvas
+pypdf
+reportlab
+pillow
+qrcode
