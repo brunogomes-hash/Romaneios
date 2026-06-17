@@ -46,56 +46,69 @@ with aba_pendentes:
         st.markdown("---")
         st.write("✍️ **ASSINE ABAIXO (Use o dedo dentro do quadro branco):**")
         
+        # Quadro branco padrão para o motorista rabiscar
         canvas_result = st_canvas(
             fill_color="rgba(255, 255, 255, 0)", 
             stroke_width=4,
             stroke_color="black",
             background_color="#ffffff",
             height=150,
-            width=400,
+            width=500, # Aumentado um pouco para dar mais espaço de escrita horizontal
             drawing_mode="freedraw",
-            key="canvas_assinatura_posicionada",
+            key="canvas_assinatura_v4_final", # Chave alterada para resetar o cache do servidor
         )
         
         if st.button("💾 Enviar Romaneio Assinado"):
             if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
-                with st.spinner("🔄 Juntando assinatura ao documento..."):
+                with st.spinner("🔄 Gravando assinatura permanentemente..."):
                     try:
-                        # 1. Abre a imagem original
+                        # 1. Abre a imagem original do documento
                         imagem_original = Image.open(caminho_pendente).convert("RGBA")
                         largura_orig, altura_orig = imagem_original.size
                         
-                        # 2. Converte o traço do canvas para imagem
-                        img_traco = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
+                        # 2. Converte o traço do canvas para uma imagem com fundo transparente
+                        img_traco_bruto = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                         
-                        # 3. Redimensiona o traço para um tamanho ideal para o campo superior
-                        largura_assinatura = int(largura_orig * 0.40)
-                        altura_assinatura = int(altura_orig * 0.10)
-                        img_traco_redim = img_traco.resize((largura_assinatura, altura_assinatura), Image.Resampling.LANCZOS)
-                        
-                        # 4. POSICIONAMENTO ALTERADO AQUI:
-                        # Alinhado mais à esquerda e jogado para a parte superior (exatamente no campo marcado em vermelho)
-                        camada_transparente = Image.new("RGBA", (largura_orig, altura_orig), (255, 255, 255, 0))
-                        
-                        pos_x = int(largura_orig * 0.08)  # Mais perto da margem esquerda
-                        pos_y = int(altura_orig * 0.20)   # Subiu do rodapé (0.84) para o topo (0.20)
-                        
-                        camada_transparente.paste(img_traco_redim, (pos_x, pos_y))
-                        
-                        # 5. Combina as duas imagens
-                        imagem_final = Image.alpha_composite(imagem_original, camada_transparente).convert("RGB")
-                        
-                        # 6. Salva o arquivo permanentemente na pasta física do servidor
-                        nome_saida = arquivo_selecionado.split(".")[0] + "_ASSINADO.png"
-                        caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
-                        imagem_final.save(caminho_salvamento, "PNG")
-                        
-                        # 7. Remove o arquivo original da pasta de pendentes para ele sumir da lista
-                        os.remove(caminho_pendente)
-                        
-                        st.balloons()
-                        st.success(f"🎉 Sucesso! Enviado para a pasta de assinados.")
-                        st.rerun()
+                        # 3. Localiza os limites exatos onde há desenho (remove as bordas vazias do quadro branco)
+                        bbox = img_traco_bruto.getbbox()
+                        if bbox:
+                            # Recorta apenas a assinatura, eliminando o espaço em branco inútil ao redor
+                            img_assinatura_cortada = img_traco_bruto.crop(bbox)
+                            
+                            # Redimensiona de forma proporcional para caber perfeitamente no campo sem deformar
+                            largura_maxima = int(largura_orig * 0.45)
+                            img_assinatura_cortada.thumbnail((largura_maxima, int(altura_orig * 0.15)), Image.Resampling.LANCZOS)
+                            
+                            largura_ass, altura_ass = img_assinatura_cortada.size
+                            
+                            # 4. Criamos a camada transparente do tamanho total do documento
+                            camada_colagem = Image.new("RGBA", (largura_orig, altura_orig), (255, 255, 255, 0))
+                            
+                            # Posicionamento exato baseado no retângulo vermelho do topo
+                            pos_x = int(largura_orig * 0.06)  # Alinhado com o início da linha "Nome:"
+                            pos_y_linha = int(altura_orig * 0.30) # Posição vertical da linha correspondente
+                            
+                            # Cola a assinatura ligeiramente acima da linha demarcatória
+                            pos_y_colagem = pos_y_linha - altura_ass - 10
+                            
+                            camada_colagem.paste(img_assinatura_cortada, (pos_x, pos_y_colagem), img_assinatura_cortada)
+                            
+                            # 5. Combina o documento original com a assinatura tratada
+                            imagem_concluida = Image.alpha_composite(imagem_original, camada_colagem).convert("RGB")
+                            
+                            # 6. Salva o arquivo permanentemente na pasta física do servidor
+                            nome_saida = arquivo_selecionado.split(".")[0] + "_ASSINADO.png"
+                            caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
+                            imagem_concluida.save(caminho_salvamento, "PNG")
+                            
+                            # 7. Remove o arquivo original da pasta de pendentes
+                            os.remove(caminho_pendente)
+                            
+                            st.balloons()
+                            st.success(f"🎉 Sucesso! Enviado para a pasta de assinados.")
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ O traço está muito fraco ou em branco. Tente assinar novamente.")
                         
                     except Exception as e:
                         st.error(f"❌ Erro ao processar o salvamento: {e}")
