@@ -4,3 +4,4 @@ pypdf
 reportlab
 pillow
 qrcode
+pdf2image
