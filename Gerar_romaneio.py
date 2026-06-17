@@ -33,7 +33,7 @@ with aba_pendentes:
                 arquivos_pendentes.append(f)
                 
     if not arquivos_pendentes:
-        st.info("🎉 Nenhum romaneio pendente! Insira modelos na pasta Romaneios_Para_Assinar.")
+        st.info("🎉 Nenhum romaneio pendente! Todos os documentos foram assinados com sucesso.")
     else:
         arquivo_selecionado = st.selectbox("Selecione o Romaneio para Assinar:", arquivos_pendentes, key="sb_pendentes")
         caminho_pendente = os.path.join(PASTA_PENDENTES, arquivo_selecionado)
@@ -96,17 +96,21 @@ with aba_pendentes:
                             camada_colagem.paste(img_assinatura_cortada, (pos_x, pos_y_colagem), img_assinatura_cortada)
                             imagem_concluida = Image.alpha_composite(imagem_original, camada_colagem).convert("RGB")
                             
-                            # Nome fixo estável (grava por cima se repetir)
                             nome_base = arquivo_selecionado.split(".")[0]
                             nome_saida = f"{nome_base}_ASSINADO.png"
-                            
                             caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
+                            
+                            # 1. Salva a versão final assinada na pasta de assinados
                             imagem_concluida.save(caminho_salvamento, "PNG")
+                            
+                            # 2. MOVE DAQUI: Deleta o original limpo da pasta de pendentes imediatamente!
+                            if os.path.exists(caminho_pendente):
+                                os.remove(caminho_pendente)
                             
                             st.session_state["versão_canvas"] += 1
                             
                             st.balloons()
-                            st.success(f"🎉 Romaneio processado com sucesso!")
+                            st.success(f"🎉 Perfeito! Documento assinado e movido para o histórico.")
                             st.rerun()
                         else:
                             st.error("❌ Quadro em branco. Assine antes de clicar em enviar.")
@@ -116,7 +120,7 @@ with aba_pendentes:
                 st.warning("⚠️ Por favor, faça a assinatura antes de clicar em enviar.")
 
 # ==========================================
-# ABA 2: HISTÓRICO / REMOÇÃO DE DUPLICADOS
+# ABA 2: HISTÓRICO GERAL E BOTÃO APAGAR TUDO
 # ==========================================
 with aba_assinados:
     st.subheader("Histórico geral de documentos assinados no servidor")
@@ -130,24 +134,35 @@ with aba_assinados:
     if not arquivos_assinados:
         st.info("📂 Nenhum documento assinado armazenado no servidor.")
     else:
-        # Criando duas colunas: uma para o seletor e outra para o botão de apagar
-        col_selecionar, col_botao = st.columns([3, 1])
+        # Criamos botões organizados na barra superior
+        col_selecionar, col_botao_unico, col_botao_tudo = st.columns([2, 1, 1])
         
         with col_selecionar:
             arquivo_ver = st.selectbox("Selecione qual romaneio deseja visualizar:", arquivos_assinados, key="sb_assinados_geral")
             caminho_assinado_ver = os.path.join(PASTA_ASSINADOS, arquivo_ver)
             
-        with col_botao:
-            st.write("") # Apenas para alinhar verticalmente com o selectbox
+        with col_botao_unico:
+            st.write("") # Alinhadores verticais
             st.write("") 
-            # BOTÃO AUTOMÁTICO PARA DELETAR O ARQUIVO DUPLICADO SELECIONADO
-            if st.button("🗑️ Apagar este arquivo"):
+            if st.button("🗑️ Apagar apenas este"):
                 try:
                     os.remove(caminho_assinado_ver)
-                    st.success(f"Arquivo deletado!")
+                    st.success("Removido!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Erro ao deletar: {e}")
+                    st.error(f"Erro: {e}")
+                    
+        with col_botao_tudo:
+            st.write("")
+            st.write("")
+            if st.button("🚨 APAGAR TUDO DO ZERO", type="primary"):
+                try:
+                    for f_remover in arquivos_assinados:
+                        os.remove(os.path.join(PASTA_ASSINADOS, f_remover))
+                    st.success("Tudo zerado!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao zerar: {e}")
                     
         st.markdown("---")
         st.image(caminho_assinado_ver, use_container_width=True)
