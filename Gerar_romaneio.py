@@ -54,7 +54,7 @@ with aba_pendentes:
             height=150,
             width=400,
             drawing_mode="freedraw",
-            key="canvas_assinatura_compartilhado",
+            key="canvas_assinatura_posicionada",
         )
         
         if st.button("💾 Enviar Romaneio Assinado"):
@@ -68,21 +68,24 @@ with aba_pendentes:
                         # 2. Converte o traço do canvas para imagem
                         img_traco = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                         
-                        # 3. Redimensiona o traço para ficar estético no rodapé
-                        largura_assinatura = int(largura_orig * 0.45)
-                        altura_assinatura = int(altura_orig * 0.12)
+                        # 3. Redimensiona o traço para um tamanho ideal para o campo superior
+                        largura_assinatura = int(largura_orig * 0.40)
+                        altura_assinatura = int(altura_orig * 0.10)
                         img_traco_redim = img_traco.resize((largura_assinatura, altura_assinatura), Image.Resampling.LANCZOS)
                         
-                        # 4. Posiciona a assinatura no rodapé do romaneio
+                        # 4. POSICIONAMENTO ALTERADO AQUI:
+                        # Alinhado mais à esquerda e jogado para a parte superior (exatamente no campo marcado em vermelho)
                         camada_transparente = Image.new("RGBA", (largura_orig, altura_orig), (255, 255, 255, 0))
-                        pos_x = int((largura_orig - largura_assinatura) / 2)
-                        pos_y = int(altura_orig * 0.84)
+                        
+                        pos_x = int(largura_orig * 0.08)  # Mais perto da margem esquerda
+                        pos_y = int(altura_orig * 0.20)   # Subiu do rodapé (0.84) para o topo (0.20)
+                        
                         camada_transparente.paste(img_traco_redim, (pos_x, pos_y))
                         
                         # 5. Combina as duas imagens
                         imagem_final = Image.alpha_composite(imagem_original, camada_transparente).convert("RGB")
                         
-                        # 6. SALVAMENTO REAL: Salva o arquivo permanentemente na pasta física do servidor
+                        # 6. Salva o arquivo permanentemente na pasta física do servidor
                         nome_saida = arquivo_selecionado.split(".")[0] + "_ASSINADO.png"
                         caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
                         imagem_final.save(caminho_salvamento, "PNG")
@@ -100,12 +103,11 @@ with aba_pendentes:
                 st.warning("⚠️ Por favor, faça a assinatura antes de clicar em enviar.")
 
 # ==========================================
-# ABA 2: ROMANEIOS JÁ ASSINADOS (COMPARTILHADA)
+# ABA 2: ROMANEIOS JÁ ASSINADOS
 # ==========================================
 with aba_assinados:
     st.subheader("Histórico geral de documentos assinados no servidor")
     
-    # Faz a leitura direta da pasta física de salvamento
     arquivos_assinados = []
     if os.path.exists(PASTA_ASSINADOS):
         for f in os.listdir(PASTA_ASSINADOS):
@@ -120,5 +122,4 @@ with aba_assinados:
         arquivo_ver = st.selectbox("Selecione um romaneio para visualizar o protocolo:", arquivos_assinados, key="sb_assinados_geral")
         caminho_assinado_ver = os.path.join(PASTA_ASSINADOS, arquivo_ver)
         
-        # Exibe o documento que foi puxado direto da pasta do servidor
         st.image(caminho_assinado_ver, caption=f"Protocolo Armazenado: {arquivo_ver}", use_container_width=True)
