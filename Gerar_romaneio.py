@@ -3,7 +3,7 @@ import os
 import numpy as np
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
-from datetime import datetime  # Importado para gerar nomes únicos por segundo
+from datetime import datetime
 
 # Configuração de diretórios
 PASTA_PENDENTES = "Romaneios_Para_Assinar"
@@ -14,6 +14,10 @@ os.makedirs(PASTA_ASSINADOS, exist_ok=True)
 
 st.set_page_config(page_title="Luft Logistics - Painel de Romaneios", layout="wide")
 st.title("🚚 Painel Digital de Romaneios")
+
+# Controla o reset do quadro de assinatura na memória do sistema
+if "versão_canvas" not in st.session_state:
+    st.session_state["versão_canvas"] = 0
 
 aba_pendentes, aba_assinados = st.tabs(["📝 Romaneios Pendentes", "✅ Romaneios Assinados"])
 
@@ -39,6 +43,9 @@ with aba_pendentes:
         st.markdown("---")
         st.write("✍️ **ASSINE ABAIXO (Use o dedo dentro do quadro branco):**")
         
+        # A chave muda dinamicamente após o envio para forçar o quadro a limpar na tela
+        chave_canvas = f"canvas_smart_v13_{st.session_state['versão_canvas']}"
+        
         canvas_result = st_canvas(
             fill_color="rgba(255, 255, 255, 0)", 
             stroke_width=4,
@@ -47,50 +54,45 @@ with aba_pendentes:
             height=150,
             width=500,
             drawing_mode="freedraw",
-            key="canvas_reconhecimento_automatico_multiplus_v12",
+            key=chave_canvas,
         )
         
         if st.button("💾 Enviar Romaneio Assinado"):
             if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
-                with st.spinner("🔍 Analisando documento e alinhando assinatura automaticamente..."):
+                with st.spinner("🔍 Analisando documento e alinhando assinatura..."):
                     try:
-                        # 1. Abre o romaneio original
+                        # 1. Abre o romaneio original (mantendo o arquivo intacto)
                         imagem_original = Image.open(caminho_pendente).convert("RGBA")
                         largura_orig, altura_orig = imagem_original.size
                         
-                        # 2. Converte o traço do motorista e remove rebarbas vazias
+                        # 2. Converte o traço do motorista e remove as rebarbas vazias
                         img_traco_bruto = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                         bbox_assinatura = img_traco_bruto.getbbox()
                         
                         if bbox_assinatura:
                             img_assinatura_cortada = img_traco_bruto.crop(bbox_assinatura)
                             
-                            # ==========================================
-                            # ESCANEAMENTO AUTOMÁTICO DO DOCUMENTO
-                            # ==========================================
+                            # Escaneamento Automático Inteligente
                             img_cinza = imagem_original.convert("L")
                             matriz_pixels = np.array(img_cinza)
                             
                             y_inicio_busca = int(altura_orig * 0.20)
                             y_fim_busca = int(altura_orig * 0.45)
                             
-                            # Encontra a linha horizontal preta com base na intensidade dos pixels
                             linhas_escuras = np.where(matriz_pixels[y_inicio_busca:y_fim_busca, :].mean(axis=1) < 200)[0]
                             
                             if len(linhas_escuras) > 0:
-                                pos_y_detectado = y_inicio_busca + linhas_escuras[-1]
+                                pos_y_detectado = y_inicio_busca + lines_escuras[-1]
                             else:
                                 pos_y_detectado = int(altura_orig * 0.31)
                             
-                            # ==========================================
-                            # AJUSTE PROPORCIONAL DA ASSINATURA
-                            # ==========================================
+                            # Ajuste dimensional estrito para não estourar os textos
                             largura_maxima = int(largura_orig * 0.30)
                             altura_maxima = int(altura_orig * 0.04)
                             img_assinatura_cortada.thumbnail((largura_maxima, altura_maxima), Image.Resampling.LANCZOS)
                             largura_ass_final, altura_ass_final = img_assinatura_cortada.size
                             
-                            # 3. Faz a colagem no local encontrado
+                            # Montagem do arquivo final
                             camada_colagem = Image.new("RGBA", (largura_orig, altura_orig), (255, 255, 255, 0))
                             pos_x = int(largura_orig * 0.06)
                             pos_y_colagem = pos_y_detectado - altura_ass_final - 4
@@ -98,10 +100,7 @@ with aba_pendentes:
                             camada_colagem.paste(img_assinatura_cortada, (pos_x, pos_y_colagem), img_assinatura_cortada)
                             imagem_concluida = Image.alpha_composite(imagem_original, camada_colagem).convert("RGB")
                             
-                            # ==========================================
-                            # ARQUIVOS ÚNICOS COM TIMESTAMP (NOVO)
-                            # ==========================================
-                            # Adiciona hora, minuto e segundo (HHMMSS) para salvar um arquivo novo a cada clique
+                            # Gera arquivo único com o horário exato
                             timestamp = datetime.now().strftime("%H%M%S")
                             nome_base = arquivo_selecionado.split(".")[0]
                             nome_saida = f"{nome_base}_ASSINADO_{timestamp}.png"
@@ -109,16 +108,19 @@ with aba_pendentes:
                             caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
                             imagem_concluida.save(caminho_salvamento, "PNG")
                             
-                            # SOLUÇÃO AQUI: Removemos a linha que deletava o arquivo pendente.
-                            # Agora o modelo limpo fica para sempre na lista para novos preenchimentos.
+                            # O SEGREDO DO RESET AQUI: 
+                            # Altera o contador para mudar a chave do canvas e forçar o quadro a limpar
+                            st.session_state["versão_canvas"] += 1
                             
                             st.balloons()
-                            st.success(f"🎉 Sensacional! Salvo como um novo arquivo no histórico: {nome_saida}")
+                            st.success(f"🎉 Salvo com sucesso! Nova versão criada: {nome_saida}")
                             st.rerun()
                         else:
                             st.error("❌ Quadro em branco. Assine antes de clicar em enviar.")
                     except Exception as e:
-                        st.error(f"❌ Erro na varredura inteligente: {e}")
+                        st.error(f"❌ Erro operacional: {e}")
+            else:
+                st.warning("⚠️ Por favor, faça a assinatura antes de clicar em enviar.")
 
 with aba_assinados:
     st.subheader("Histórico geral de documentos assinados no servidor")
@@ -131,7 +133,6 @@ with aba_assinados:
     if not arquivos_assinados:
         st.info("📂 Nenhum documento assinado armazenado no servidor.")
     else:
-        # Exibe a lista completa de todas as assinaturas geradas no dia por ordem de horário
         arquivo_ver = st.selectbox("Selecione qual versão do romaneio deseja visualizar:", arquivos_assinados, key="sb_assinados_geral")
         caminho_assinado_ver = os.path.join(PASTA_ASSINADOS, arquivo_ver)
         st.image(caminho_assinado_ver, use_container_width=True)
