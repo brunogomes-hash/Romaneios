@@ -4,7 +4,7 @@ import numpy as np
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 
-# Configuração das pastas físicas no servidor
+# Configuração de diretórios
 PASTA_PENDENTES = "Romaneios_Para_Assinar"
 PASTA_ASSINADOS = "Romaneios_Assinados"
 
@@ -14,7 +14,6 @@ os.makedirs(PASTA_ASSINADOS, exist_ok=True)
 st.set_page_config(page_title="Luft Logistics - Painel de Romaneios", layout="wide")
 st.title("🚚 Painel Digital de Romaneios")
 
-# Abas do painel
 aba_pendentes, aba_assinados = st.tabs(["📝 Romaneios Pendentes", "✅ Romaneios Assinados"])
 
 with aba_pendentes:
@@ -39,7 +38,7 @@ with aba_pendentes:
         st.markdown("---")
         st.write("✍️ **ASSINE ABAIXO (Use o dedo dentro do quadro branco):**")
         
-        # Quadro branco estável
+        # Bloco estável do Canvas para coleta do desenho
         canvas_result = st_canvas(
             fill_color="rgba(255, 255, 255, 0)", 
             stroke_width=4,
@@ -48,65 +47,64 @@ with aba_pendentes:
             height=150,
             width=500,
             drawing_mode="freedraw",
-            key="canvas_posicao_cravada_v9",
+            key="canvas_alinhamento_matematico_v10",
         )
         
         if st.button("💾 Enviar Romaneio Assinado"):
             if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
-                with st.spinner("🔄 Gravando assinatura no local correto..."):
+                with st.spinner("🔄 Gravando assinatura perfeitamente no espaço demarcado..."):
                     try:
-                        # 1. Abre o romaneio original
+                        # 1. Abre o romaneio base original
                         imagem_original = Image.open(caminho_pendente).convert("RGBA")
                         largura_orig, altura_orig = imagem_original.size
                         
-                        # 2. Converte o desenho do motorista
+                        # 2. Converte o canvas para imagem manipulável
                         img_traco_bruto = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                         
-                        # 3. Corta o excesso invisível ao redor do desenho
+                        # 3. Captura estritamente os pixels desenhados tirando as rebarbas
                         bbox = img_traco_bruto.getbbox()
                         if bbox:
                             img_assinatura_cortada = img_traco_bruto.crop(bbox)
                             
-                            # --- DIMENSÃO REDUZIDA E CONTROLADA ---
-                            # Força a assinatura a ser pequena para caber estritamente no meio do espaço
-                            largura_maxima = int(largura_orig * 0.35)
-                            altura_maxima = int(altura_orig * 0.05)   # Altura reduzida para não tocar em nada
+                            # --- LIMITES RÍGIDOS DE DIMENSÃO (BLOQUEIO ANTI-INVASÃO) ---
+                            # Restringe a assinatura a um tamanho compacto e seguro para caber na lacuna branca
+                            largura_maxima = int(largura_orig * 0.32)
+                            altura_maxima = int(altura_orig * 0.032)  # Trava estrita de altura para nunca encostar no texto de cima
+                            
                             img_assinatura_cortada.thumbnail((largura_maxima, altura_maxima), Image.Resampling.LANCZOS)
                             largura_ass_final, altura_ass_final = img_assinatura_cortada.size
                             
-                            # 4. Camada de colagem transparente
+                            # 4. Cria matriz transparente de sobreposição
                             camada_colagem = Image.new("RGBA", (largura_orig, altura_orig), (255, 255, 255, 0))
                             
-                            # --- COORDENADAS CORRIGIDAS PARA CIMA DA LINHA DO NOME ---
-                            # Alinha horizontalmente no começo da linha esquerda
+                            # --- CÁLCULO DE POSICIONAMENTO ENCOSTANDO NA LINHA ---
+                            # X: Alinhado logo no começo da linha esquerda (Margem limpa)
                             pos_x = int(largura_orig * 0.05)
                             
-                            # Altura calculada para colar exatamente no meio do campo de assinatura superior (31.5% do documento)
-                            # Fica abaixo de "Eu Sem Info..." e encostado logo acima da linha preta horizontal
-                            pos_y_linha_nome = int(altura_orig * 0.315)
+                            # Y: O pixel exato onde está a linha "Nome:" é 31.2% da altura total do documento
+                            pos_y_linha_nome = int(altura_orig * 0.312)
+                            
+                            # A base da assinatura pousa exatamente 3 pixels acima da linha preta
                             pos_y_colagem = pos_y_linha_nome - altura_ass_final - 3
                             
-                            # Cola o traço
+                            # Executa a fusão
                             camada_colagem.paste(img_assinatura_cortada, (pos_x, pos_y_colagem), img_assinatura_cortada)
-                            
-                            # 5. Junta tudo
                             imagem_concluida = Image.alpha_composite(imagem_original, camada_colagem).convert("RGB")
                             
-                            # 6. Salva
+                            # 5. Salva permanentemente e limpa a fila
                             nome_saida = arquivo_selecionado.split(".")[0] + "_ASSINADO.png"
                             caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
                             imagem_concluida.save(caminho_salvamento, "PNG")
                             
-                            # Remove pendente
                             os.remove(caminho_pendente)
                             
                             st.balloons()
-                            st.success("🎉 Romaneio salvo com sucesso no local exato!")
+                            st.success("🎉 Perfeito! Romaneio gravado exatamente dentro do limite do campo.")
                             st.rerun()
                         else:
-                            st.error("❌ Desenho inválido. Tente assinar novamente.")
+                            st.error("❌ Nenhum traço detectado. Assine novamente no quadro branco.")
                     except Exception as e:
-                        st.error(f"❌ Erro ao processar: {e}")
+                        st.error(f"❌ Erro operacional: {e}")
             else:
                 st.warning("⚠️ Por favor, faça a assinatura antes de clicar em enviar.")
 
