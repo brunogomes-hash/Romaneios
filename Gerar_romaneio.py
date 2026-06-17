@@ -4,12 +4,13 @@ import numpy as np
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 
-# Configuração das pastas
+# Configuração das pastas físicas no servidor
 PASTA_PENDENTES = "Romaneios_Para_Assinar"
+PASTA_ASSINADOS = "Romaneios_Assinados"
 
-# Inicializa uma lista na memória para guardar os arquivos assinados temporariamente
-if "romaneios_assinados_memoria" not in st.session_state:
-    st.session_state.romaneios_assinados_memoria = {}
+# Garante que as duas pastas existem fisicamente no servidor da nuvem
+os.makedirs(PASTA_PENDENTES, exist_ok=True)
+os.makedirs(PASTA_ASSINADOS, exist_ok=True)
 
 st.set_page_config(page_title="Luft Logistics - Painel de Romaneios", layout="wide")
 
@@ -28,9 +29,7 @@ with aba_pendentes:
     if os.path.exists(PASTA_PENDENTES):
         for f in os.listdir(PASTA_PENDENTES):
             if f.endswith(".png") or f.endswith(".jpg") or f.endswith(".jpeg"):
-                # Garante que só mostra se ainda não tiver sido assinado na sessão
-                if f not in st.session_state.romaneios_assinados_memoria:
-                    arquivos_pendentes.append(f)
+                arquivos_pendentes.append(f)
                 
     if not arquivos_pendentes:
         st.info("🎉 Nenhum romaneio pendente! Todos os documentos foram assinados.")
@@ -47,16 +46,15 @@ with aba_pendentes:
         st.markdown("---")
         st.write("✍️ **ASSINE ABAIXO (Use o dedo dentro do quadro branco):**")
         
-        # CORREÇÃO CRÍTICA: Removido o use_container_width que causava o erro!
         canvas_result = st_canvas(
             fill_color="rgba(255, 255, 255, 0)", 
             stroke_width=4,
             stroke_color="black",
             background_color="#ffffff",
             height=150,
-            width=400, # Tamanho fixo ideal para telas de celular e PC
+            width=400,
             drawing_mode="freedraw",
-            key="canvas_assinatura_correto",
+            key="canvas_assinatura_compartilhado",
         )
         
         if st.button("💾 Enviar Romaneio Assinado"):
@@ -84,18 +82,16 @@ with aba_pendentes:
                         # 5. Combina as duas imagens
                         imagem_final = Image.alpha_composite(imagem_original, camada_transparente).convert("RGB")
                         
-                        # 6. Salva o resultado final diretamente na memória compartilhada das abas
+                        # 6. SALVAMENTO REAL: Salva o arquivo permanentemente na pasta física do servidor
                         nome_saida = arquivo_selecionado.split(".")[0] + "_ASSINADO.png"
+                        caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
+                        imagem_final.save(caminho_salvamento, "PNG")
                         
-                        # Guarda a imagem pronta na memória
-                        st.session_state.romaneios_assinados_memoria[arquivo_selecionado] = {
-                            "nome": nome_saida,
-                            "imagem": imagem_final
-                        }
+                        # 7. Remove o arquivo original da pasta de pendentes para ele sumir da lista
+                        os.remove(caminho_pendente)
                         
                         st.balloons()
-                        st.success(f"🎉 Sucesso! Enviado para a aba Romaneios Assinados.")
-                        st.status("Documento processado com sucesso! Redirecionando...")
+                        st.success(f"🎉 Sucesso! Enviado para a pasta de assinados.")
                         st.rerun()
                         
                     except Exception as e:
@@ -104,20 +100,25 @@ with aba_pendentes:
                 st.warning("⚠️ Por favor, faça a assinatura antes de clicar em enviar.")
 
 # ==========================================
-# ABA 2: ROMANEIOS JÁ ASSINADOS
+# ABA 2: ROMANEIOS JÁ ASSINADOS (COMPARTILHADA)
 # ==========================================
 with aba_assinados:
-    st.subheader("Histórico de documentos assinados nesta sessão")
+    st.subheader("Histórico geral de documentos assinados no servidor")
     
-    if not st.session_state.romaneios_assinados_memoria:
-        st.info("📂 Nenhum documento foi assinado nesta sessão ainda.")
+    # Faz a leitura direta da pasta física de salvamento
+    arquivos_assinados = []
+    if os.path.exists(PASTA_ASSINADOS):
+        for f in os.listdir(PASTA_ASSINADOS):
+            if f.endswith(".png") or f.endswith(".jpg") or f.endswith(".jpeg"):
+                arquivos_assinados.append(f)
+                
+    if not arquivos_assinados:
+        st.info("📂 Nenhum documento assinado armazenado no servidor até o momento.")
     else:
-        st.write(f"✅ **Total de documentos assinados:** {len(st.session_state.romaneios_assinados_memoria)}")
+        st.write(f"✅ **Total de documentos assinados disponíveis:** {len(arquivos_assinados)}")
         
-        lista_nomes_originais = list(st.session_state.romaneios_assinados_memoria.keys())
-        arquivo_ver_orig = st.selectbox("Selecione um romaneio para visualizar o protocolo:", lista_nomes_originais, key="sb_assinados")
+        arquivo_ver = st.selectbox("Selecione um romaneio para visualizar o protocolo:", arquivos_assinados, key="sb_assinados_geral")
+        caminho_assinado_ver = os.path.join(PASTA_ASSINADOS, arquivo_ver)
         
-        dados_romaneio = st.session_state.romaneios_assinados_memoria[arquivo_ver_orig]
-        
-        # Exibe o documento definitivo direto da memória já com o rabisco fixado nele!
-        st.image(dados_romaneio["imagem"], caption=f"Protocolo Concluído: {dados_romaneio['nome']}", use_container_width=True)
+        # Exibe o documento que foi puxado direto da pasta do servidor
+        st.image(caminho_assinado_ver, caption=f"Protocolo Armazenado: {arquivo_ver}", use_container_width=True)
