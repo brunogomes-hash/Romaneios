@@ -10,11 +10,10 @@ import shutil
 # ==============================================================================
 # 📂 CONFIGURAÇÃO DE PASTAS NA NUVEM (STREAMLIT CLOUD)
 # ==============================================================================
-# Mudamos para caminhos relativos para o servidor Linux da nuvem não quebrar
 PASTA_PENDENTES = "Romaneios_Para_Assinar"
 PASTA_DESTINO_SHAREPOINT = "Romaneios_Assinados_Finais" 
 
-# Garante que as pastas existam no servidor
+# Garante que as pastas existam no servidor da nuvem
 os.makedirs(PASTA_PENDENTES, exist_ok=True)
 os.makedirs(PASTA_DESTINO_SHAREPOINT, exist_ok=True)
 
@@ -54,7 +53,7 @@ def converter_pdf_para_imagem_continua(caminho_pdf):
     return imagem_comprida
 
 def aplicar_assinatura_em_pdf(caminho_pdf, img_bytes_assinatura, trans_nome):
-    """Carimba a assinatura no PDF e move o arquivo para a pasta de concluídos do servidor"""
+    """Carimba a assinatura no PDF e salva o arquivo final na nova pasta de destino"""
     doc = fitz.open(caminho_pdf)
     ultima_pagina = doc[-1]
     
@@ -85,8 +84,8 @@ def aplicar_assinatura_em_pdf(caminho_pdf, img_bytes_assinatura, trans_nome):
     nome_saida_pdf = f"{nome_base}_ASSINADO.pdf"
     caminho_salvamento_final = os.path.join(pasta_final_trans, nome_saida_pdf)
     
-    # Salva o arquivo final
-    doc.save(caminho_salvamento_final, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+    # 🔥 CORREÇÃO: Salva como um novo arquivo limpo, removendo a trava do modo incremental
+    doc.save(caminho_salvamento_final, deflation=True)
     doc.close()
     
     # Remove dos pendentes originais do site para liberar a fila
@@ -103,7 +102,6 @@ with aba_pendentes:
     if os.path.exists(PASTA_PENDENTES):
         for item in os.listdir(PASTA_PENDENTES):
             caminho_subpasta = os.path.join(PASTA_PENDENTES, item)
-            # CORREÇÃO CRÍTICA DO LOG: Validando de forma segura sem quebrar o laço de repetição
             if os.path.isdir(caminho_subpasta):
                 arquivos_pasta = os.listdir(caminho_subpasta)
                 if any(f.lower().endswith(('.pdf', '.b')) for f in arquivos_pasta):
@@ -220,7 +218,7 @@ with aba_pendentes:
 # ==========================================
 with aba_assinados:
     st.subheader("📁 Histórico de Arquivos no Servidor Nuvem")
-    st.info("Os arquivos assinados com sucesso estão salvos temporariamente na pasta do servidor do site.")
+    st.info("Os arquivos assinados com sucesso estão salvos com segurança na pasta do servidor do site.")
 
 # ==========================================
 # 🛠️ PAINEL DE CONTROLE DA FILA DE ENTRADA
