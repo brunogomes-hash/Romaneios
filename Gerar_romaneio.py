@@ -6,7 +6,7 @@ from PIL import Image
 import fitz  # PyMuPDF para abrir o PDF dentro do site
 import io
 
-# Configuração de diretórios
+# Configuração de diretórios (Estrutura com subpastas por transportadora)
 PASTA_PENDENTES = "Romaneios_Para_Assinar"
 PASTA_ASSINADOS = "Romaneios_Assinados"
 
@@ -55,25 +55,38 @@ def converter_pdf_para_imagem_continua(caminho_pdf):
     return imagem_comprida
 
 # ==========================================
-# ABA 1: ROMANEIOS PENDENTES (LENDO PDF)
+# 📝 ABA 1: ROMANEIOS PENDENTES (POR TRANSPORTADORA)
 # ==========================================
 with aba_pendentes:
     st.subheader("Documentos aguardando assinatura do motorista")
     
-    arquivos_pendentes = []
+    # 🔍 Mapeia subpastas que possuem arquivos PDF dentro
+    transportadoras_pendentes = []
     if os.path.exists(PASTA_PENDENTES):
-        for f in os.listdir(PASTA_PENDENTES):
-            if f.endswith(".pdf"):
-                arquivos_pendentes.append(f)
-                
-    if not arquivos_pendentes:
+        for item in os.listdir(PASTA_PENDENTES):
+            caminho_subpasta = os.path.join(PASTA_PENDENTES, item)
+            if os.path.isdir(caminho_subpasta):
+                # Verifica se há algum PDF dentro dessa pasta de transportadora
+                possui_pdf = any(f.endswith(".pdf") for f in os.listdir(caminho_subpasta))
+                if possui_pdf:
+                    transportadoras_pendentes.append(item)
+                    
+    if not transportadoras_pendentes:
         st.info("🎉 Nenhum romaneio pendente! Todos os documentos foram assinados com sucesso.")
     else:
-        arquivo_selecionado = st.selectbox("Selecione o Romaneio para Assinar:", arquivos_pendentes, key="sb_pendentes")
-        caminho_pendente = os.path.join(PASTA_PENDENTES, arquivo_selecionado)
+        # Primeiro filtro: Transportadora
+        trans_selecionada = st.selectbox("📌 Selecione a Transportadora:", sorted(transportadoras_pendentes), key="sb_trans_pendentes")
+        
+        pasta_trans_escolhida = os.path.join(PASTA_PENDENTES, trans_selecionada)
+        arquivos_da_trans = [f for f in os.listdir(pasta_trans_escolhida) if f.endswith(".pdf")]
+        
+        # Segundo filtro: O número do romaneio limpo daquela transportadora
+        arquivo_selecionado = st.selectbox("📄 Selecione o Romaneio:", arquivos_da_trans, key="sb_arquivos_pendentes")
+        
+        caminho_pendente = os.path.join(pasta_trans_escolhida, arquivo_selecionado)
         
         st.markdown("---")
-        st.write(f"📋 **Visualizando: {arquivo_selecionado}**")
+        st.write(f"📋 **Visualizando Romaneio:** `{arquivo_selecionado}` da transportadora **{trans_selecionada}**")
         
         with st.spinner("Carregando páginas do Romaneio..."):
             imagem_original = converter_pdf_para_imagem_continua(caminho_pendente)
@@ -109,64 +122,51 @@ with aba_pendentes:
                         if bbox_assinatura:
                             img_assinatura_cortada = img_traco_bruto.crop(bbox_assinatura)
                             
-                            # Converte o documento longo para tons de cinza para analisar pixels
                             img_cinza = imagem_original_rgba.convert("L")
                             matriz_pixels = np.array(img_cinza)
                             
-                            # 🎯 NOVA LÓGICA: Procurar a linha do Motorista de baixo para cima no rodapé
-                            # Começa a busca a partir de 50% até 98% da altura total do arquivo unificado
                             y_inicio_busca = int(altura_orig * 0.50)
                             y_fim_busca = int(altura_orig * 0.98)
                             
-                            # Corta a matriz apenas na região do rodapé e calcula a média de cor horizontal
                             regiao_rodape = matriz_pixels[y_inicio_busca:y_fim_busca, :]
                             medias_horizontais = regiao_rodape.mean(axis=1)
                             
-                            # Encontra os índices das linhas escuras (pontilhados/traços pretos possuem valor < 200)
                             linhas_escuras = np.where(medias_horizontais < 210)[0]
                             
                             if len(linhas_escuras) > 0:
-                                # 🔍 Ponto Crítico: Pegamos o ÚLTIMO índice encontrado da lista de baixo para cima
                                 pos_y_detectado = y_inicio_busca + linhas_escuras[-1]
-                                print(f"🎯 Linha de assinatura do rodapé detectada no pixel Y: {pos_y_detectado}")
                             else:
-                                # Fallback caso o documento falhe na leitura visual de pixels
                                 pos_y_detectado = int(altura_orig * 0.90)
-                                print("⚠️ Linha escura não detectada no rodapé. Usando fallback de segurança.")
                             
-                            # Redimensiona proporcionalmente a assinatura do motorista
                             largura_maxima = int(largura_orig * 0.32)
                             altura_maxima = int(altura_orig * 0.05)
                             img_assinatura_cortada.thumbnail((largura_maxima, altura_maxima), Image.Resampling.LANCZOS)
                             largura_ass_final, altura_ass_final = img_assinatura_cortada.size
                             
-                            # Cria a camada transparente para carimbar o desenho
                             camada_colagem = Image.new("RGBA", (largura_orig, altura_orig), (255, 255, 255, 0))
                             
-                            # Alinhamento horizontal padrão (X) no canto esquerdo da folha
                             pos_x = int(largura_orig * 0.06)
-                            
-                            # Cola a assinatura exatamente 12 pixels acima da linha horizontal identificada
                             pos_y_colagem = pos_y_detectado - altura_ass_final - 12
                             
-                            # Junta as camadas
                             camada_colagem.paste(img_assinatura_cortada, (pos_x, pos_y_colagem), img_assinatura_cortada)
                             imagem_concluida = Image.alpha_composite(imagem_original_rgba, camada_colagem).convert("RGB")
                             
+                            # Mantém a organização salvando na pasta histórica também por transportadora
+                            pasta_salvamento_assinado = os.path.join(PASTA_ASSINADOS, trans_selecionada)
+                            os.makedirs(pasta_salvamento_assinado, exist_ok=True)
+                            
                             nome_base = arquivo_selecionado.split(".")[0]
                             nome_saida = f"{nome_base}_ASSINADO.png"
-                            caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
+                            caminho_salvamento = os.path.join(pasta_salvamento_assinado, nome_saida)
                             
-                            # Salva a imagem final assinada
                             imagem_concluida.save(caminho_salvamento, "PNG")
                             
-                            # Deleta o arquivo PDF original que estava pendente
                             if os.path.exists(caminho_pendente):
                                 os.remove(caminho_pendente)
                             
                             st.session_state["versão_canvas"] += 1
                             st.balloons()
-                            st.success(f"🎉 Perfeito! Documento assinado e gravado com sucesso no rodapé.")
+                            st.success(f"🎉 Perfeito! Documento assinado e salvo na pasta {trans_selecionada}.")
                             st.rerun()
                         else:
                             st.error("❌ Quadro em branco. Assine antes de clicar em enviar.")
@@ -176,22 +176,30 @@ with aba_pendentes:
                 st.warning("⚠️ Por favor, faça a assinatura antes de clicar em enviar.")
 
 # ==========================================
-# ABA 2: HISTÓRICO SEGURO
+# ✅ ABA 2: HISTÓRICO SEGURO (POR TRANSPORTADORA)
 # ==========================================
 with aba_assinados:
     st.subheader("Histórico geral de documentos assinados no servidor")
     
-    arquivos_assinados = []
+    transportadoras_assinadas = []
     if os.path.exists(PASTA_ASSINADOS):
-        for f in os.listdir(PASTA_ASSINADOS):
-            if f.endswith((".png", ".jpg", ".jpeg")):
-                arquivos_assinados.append(f)
-                
-    if not arquivos_assinados:
+        for item in os.listdir(PASTA_ASSINADOS):
+            caminho_subpasta = os.path.join(PASTA_ASSINADOS, item)
+            if os.path.isdir(caminho_subpasta):
+                possui_imagem = any(f.endswith((".png", ".jpg", ".jpeg")) for f in os.listdir(caminho_subpasta))
+                if possui_imagem:
+                    transportadoras_assinadas.append(item)
+                    
+    if not transportadoras_assinadas:
         st.info("📂 Nenhum documento assinado armazenado no servidor no momento.")
     else:
-        arquivo_ver = st.selectbox("Selecione qual romaneio deseja visualizar:", arquivos_assinados, key="sb_assinados_geral")
-        caminho_assinado_ver = os.path.join(PASTA_ASSINADOS, arquivo_ver)
+        trans_assinada_sel = st.selectbox("📌 Filtrar Histórico por Transportadora:", sorted(transportadoras_assinadas), key="sb_trans_assinados")
+        
+        pasta_ass_escolhida = os.path.join(PASTA_ASSINADOS, trans_assinada_sel)
+        arquivos_assinados = [f for f in os.listdir(pasta_ass_escolhida) if f.endswith((".png", ".jpg", ".jpeg"))]
+        
+        arquivo_ver = st.selectbox("📄 Selecione o romaneio assinado para visualizar:", arquivos_assinados, key="sb_arquivos_assinados")
+        caminho_assinado_ver = os.path.join(pasta_ass_escolhida, arquivo_ver)
                             
         st.markdown("---")
         st.image(caminho_assinado_ver, use_container_width=True)
