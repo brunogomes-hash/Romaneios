@@ -3,3 +3,4 @@ requests
 pandas
 PyMuPDF
 pillow
+streamlit-drawable-canvas
