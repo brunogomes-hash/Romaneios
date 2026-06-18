@@ -111,7 +111,7 @@ with aba_pendentes:
                             ultima_pagina = doc[-1] # Pega estritamente a ÚLTIMA página
                             
                             # 3. Busca a coordenada exata do texto "Responsável:"
-                            retangulos_texto = ultima_pagina.search_for("Responsável:")
+                            retangulos_texto = ultima_pagina.search_for("Nome:")
                             
                             if retangulos_texto:
                                 # Se achou o texto, pega a posição dele
