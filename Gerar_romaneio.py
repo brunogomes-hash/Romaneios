@@ -85,7 +85,7 @@ def aplicar_assinatura_em_pdf(caminho_pdf, img_bytes_assinatura, trans_nome):
     caminho_salvamento_final = os.path.join(pasta_final_trans, nome_saida_pdf)
     
     # 🔥 CORREÇÃO: Salva como um novo arquivo limpo, removendo a trava do modo incremental
-    doc.save(caminho_salvamento_final, deflation=True)
+    doc.save(caminho_salvamento_final, deflate=True)
     doc.close()
     
     # Remove dos pendentes originais do site para liberar a fila
