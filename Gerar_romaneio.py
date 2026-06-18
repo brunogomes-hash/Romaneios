@@ -58,16 +58,12 @@ def aplicar_assinatura_em_pdf(caminho_pdf, img_bytes_assinatura, trans_nome):
     retangulos_texto = ultima_pagina.search_for("Nome:")
     
     if retangulos_texto:
-        # Se achou o texto "Nome:", pega a posição dele
         retangulo_alvo = retangulos_texto[0]
-        
-        # Define a área da assinatura (EXATAMENTE acima do "Nome:", alinhado à esquerda)
         x0 = retangulo_alvo.x0
         y0 = retangulo_alvo.y0 - 65  # Sobe 65 pixels para ficar acima da linha preta longa
         x1 = x0 + 180                # Largura proporcional da assinatura
         y1 = retangulo_alvo.y0 - 10  # Margem para não colar em cima do texto "Nome:"
     else:
-        # Fallback de segurança se o texto sumir: Assina no rodapé padrão esquerdo
         largura_pag = ultima_pagina.rect.width
         altura_pag = ultima_pagina.rect.height
         x0, y0, x1, y1 = 40, altura_pag - 120, 220, altura_pag - 70
@@ -130,13 +126,19 @@ with aba_pendentes:
         
         # Gerencia o modo de visualização na tela
         if arquivo_selecionado == "-- MOSTRAR TODOS OS ROMANEIOS (Assinar em Lote) --":
-            st.info(f"💡 Modo de assinatura em Lote ativado. Os {len(arquivos_da_trans)} romaneios serão assinados juntos.")
-            with st.spinner("Carregando exemplo de visualização..."):
-                caminho_exemplo = os.path.join(pasta_trans_escolhida, arquivos_da_trans[0])
-                imagem_original = converter_pdf_para_imagem_continua(caminho_exemplo)
-            st.image(imagem_original, caption=f"Exemplo de Layout (Romaneio: {arquivos_da_trans[0]})", use_container_width=True)
+            st.info(f"💡 Modo de assinatura em Lote ativado. Os {len(arquivos_da_trans)} romaneios listados abaixo serão assinados juntos.")
+            
+            # MUDANÇA AQUI: Loop para renderizar TODOS os PDFs na tela um embaixo do outro
+            with st.spinner("Carregando visualização de todos os romaneios pendentes..."):
+                for idx, arquivo_pdf in enumerate(arquivos_da_trans):
+                    st.markdown(f"##### 📄 {idx + 1}º Romaneio: `{arquivo_pdf}`")
+                    caminho_completo = os.path.join(pasta_trans_escolhida, arquivo_pdf)
+                    imagem_original = converter_pdf_para_imagem_continua(caminho_completo)
+                    st.image(imagem_original, use_container_width=True)
+                    st.markdown("<br>", unsafe_allow_html=True)  # Dá um espaço entre as imagens
             modo_lote = True
         else:
+            # Mostra apenas o PDF selecionado no filtro
             with st.spinner("Carregando visualização do Romaneio..."):
                 caminho_pendente = os.path.join(pasta_trans_escolhida, arquivo_selecionado)
                 imagem_original = converter_pdf_para_imagem_continua(caminho_pendente)
@@ -166,7 +168,7 @@ with aba_pendentes:
                 # Botão para assinar apenas 1 único romaneio focado
                 if st.button("💾 Enviar Romaneio Assinado (Apenas Este)", use_container_width=True):
                     if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
-                        with st.spinner("🎯 Processando assinatura e aplicando acima do campo 'Nome'..."):
+                        with st.spinner("🎯 Processando assinatura..."):
                             try:
                                 img_traco_bruto = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                                 bbox_assinatura = img_traco_bruto.getbbox()
@@ -177,7 +179,6 @@ with aba_pendentes:
                                     img_assinatura_cortada.save(img_byte_arr, format='PNG')
                                     img_bytes = img_byte_arr.getvalue()
                                     
-                                    # Aplica sua lógica inteligente de busca por "Nome:" neste PDF específico
                                     aplicar_assinatura_em_pdf(caminho_pendente, img_bytes, trans_selecionada)
                                     
                                     st.session_state["versão_canvas"] += 1
@@ -196,7 +197,7 @@ with aba_pendentes:
             texto_botao_lote = f"🔥 Assinar TODOS os {len(arquivos_da_trans)} Romaneios de uma vez"
             if st.button(texto_botao_lote, type="primary", use_container_width=True):
                 if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
-                    with st.spinner(f"⚡ Executando processo em lote. Carimbando acima de 'Nome:' em {len(arquivos_da_trans)} PDFs..."):
+                    with st.spinner(f"⚡ Carimbando assinatura em {len(arquivos_da_trans)} PDFs..."):
                         try:
                             img_traco_bruto = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                             bbox_assinatura = img_traco_bruto.getbbox()
@@ -207,14 +208,14 @@ with aba_pendentes:
                                 img_assinatura_cortada.save(img_byte_arr, format='PNG')
                                 img_bytes = img_byte_arr.getvalue()
                                 
-                                # Loop inteligente: entra arquivo por arquivo aplicando sua lógica de busca por "Nome:"
+                                # Loop inteligente aplicando sua lógica de busca por "Nome:" em cada arquivo
                                 for arquivo_pdf in arquivos_da_trans:
                                     caminho_completo_pdf = os.path.join(pasta_trans_escolhida, arquivo_pdf)
                                     aplicar_assinatura_em_pdf(caminho_completo_pdf, img_bytes, trans_selecionada)
                                 
                                 st.session_state["versão_canvas"] += 1
                                 st.balloons()
-                                st.success(f"🚀 Espetacular! Todos os {len(arquivos_da_trans)} romaneios foram processados e assinados acima de 'Nome:'!")
+                                st.success(f"🚀 Todos os {len(arquivos_da_trans)} romaneios foram processados e assinados de uma só vez!")
                                 st.rerun()
                         except Exception as e:
                             st.error(f"❌ Erro no processamento em lote: {e}")
@@ -249,7 +250,7 @@ with aba_assinados:
         st.image(caminho_assinado_ver, use_container_width=True)
 
 # ==========================================
-# 🛠️ PAINEL DE LIMPEZA SEGURO (MÉTODO ATUALIZADO)
+# 🛠️ PAINEL DE LIMPEZA SEGURO (CORRIGIDO)
 # ==========================================
 st.markdown("---")
 with st.expander("⚙️ Painel Avançado de Limpeza do Sistema (Zerar Tudo)"):
