@@ -6,6 +6,7 @@ from PIL import Image
 import fitz  # PyMuPDF
 import io
 import shutil
+import requests  # <--- COLOQUE ESSA LINHA AQUI NO TOPO
 
 # Configuração de diretórios (Estrutura com subpastas por transportadora)
 PASTA_PENDENTES = "Romaneios_Para_Assinar"
