@@ -3,7 +3,7 @@ import os
 import numpy as np
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
-import fitz  # PyMuPDF para abrir o PDF dentro do site
+import fitz  # PyMuPDF
 import io
 
 # Configuração de diretórios (Estrutura com subpastas por transportadora)
@@ -22,20 +22,15 @@ if "versão_canvas" not in st.session_state:
 aba_pendentes, aba_assinados = st.tabs(["📝 Romaneios Pendentes", "✅ Romaneios Assinados"])
 
 def converter_pdf_para_imagem_continua(caminho_pdf):
-    """Abre o PDF (com 1 ou mais páginas) e junta tudo em uma imagem única vertical"""
+    """Abre o PDF e junta as páginas em uma imagem única vertical para visualização rápida no site"""
     pdf_documento = fitz.open(caminho_pdf)
-    total_paginas = len(pdf_documento)
-    
     imagens_paginas = []
     largura_maxima = 0
     altura_total = 0
     
-    for num_pag in range(total_paginas):
-        pagina = pdf_documento.load_page(num_pag)
-        zoom = 2  # Mantém a alta qualidade do robô
-        matriz = fitz.Matrix(zoom, zoom)
-        pixmap = pagina.get_pixmap(matrix=matriz)
-        
+    for pagina in pdf_documento:
+        zoom = 2
+        pixmap = pagina.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
         img_pil = Image.open(io.BytesIO(pixmap.tobytes("png")))
         imagens_paginas.append(img_pil)
         
@@ -45,7 +40,6 @@ def converter_pdf_para_imagem_continua(caminho_pdf):
         
     pdf_documento.close()
     
-    # Cria o fundo branco longo para colar todas as páginas do PDF
     imagem_comprida = Image.new("RGBA", (largura_maxima, altura_total), (255, 255, 255, 255))
     y_offset = 0
     for img in imagens_paginas:
@@ -55,46 +49,38 @@ def converter_pdf_para_imagem_continua(caminho_pdf):
     return imagem_comprida
 
 # ==========================================
-# 📝 ABA 1: ROMANEIOS PENDENTES (POR TRANSPORTADORA)
+# 📝 ABA 1: ROMANEIOS PENDENTES
 # ==========================================
 with aba_pendentes:
     st.subheader("Documentos aguardando assinatura do motorista")
     
-    # 🔍 Mapeia subpastas que possuem arquivos PDF dentro
     transportadoras_pendentes = []
     if os.path.exists(PASTA_PENDENTES):
         for item in os.listdir(PASTA_PENDENTES):
             caminho_subpasta = os.path.join(PASTA_PENDENTES, item)
-            if os.path.isdir(caminho_subpasta):
-                # Verifica se há algum PDF dentro dessa pasta de transportadora
-                possui_pdf = any(f.endswith(".pdf") for f in os.listdir(caminho_subpasta))
-                if possui_pdf:
-                    transportadoras_pendentes.append(item)
+            if os.path.isdir(caminho_subpasta) and any(f.endswith(".pdf") for f in os.listdir(caminho_subpasta)):
+                transportadoras_pendentes.append(item)
                     
     if not transportadoras_pendentes:
-        st.info("🎉 Nenhum romaneio pendente! Todos os documentos foram assinados com sucesso.")
+        st.info("🎉 Nenhum romaneio pendente!")
     else:
-        # Primeiro filtro: Transportadora
         trans_selecionada = st.selectbox("📌 Selecione a Transportadora:", sorted(transportadoras_pendentes), key="sb_trans_pendentes")
         
         pasta_trans_escolhida = os.path.join(PASTA_PENDENTES, trans_selecionada)
         arquivos_da_trans = [f for f in os.listdir(pasta_trans_escolhida) if f.endswith(".pdf")]
         
-        # Segundo filtro: O número do romaneio limpo daquela transportadora
         arquivo_selecionado = st.selectbox("📄 Selecione o Romaneio:", arquivos_da_trans, key="sb_arquivos_pendentes")
-        
         caminho_pendente = os.path.join(pasta_trans_escolhida, arquivo_selecionado)
         
         st.markdown("---")
-        st.write(f"📋 **Visualizando Romaneio:** `{arquivo_selecionado}` da transportadora **{trans_selecionada}**")
         
-        with st.spinner("Carregando páginas do Romaneio..."):
+        with st.spinner("Carregando visualização do Romaneio..."):
             imagem_original = converter_pdf_para_imagem_continua(caminho_pendente)
         
         st.image(imagem_original, use_container_width=True)
         
         st.markdown("---")
-        st.write("✍️ **ASSINE ABAIXO (Use o dedo dentro do quadro branco):**")
+        st.write("✍️ **ASSINE ABAIXO (Use o dedo ou mouse dentro do quadro branco):**")
         
         chave_canvas = f"canvas_smart_final_{st.session_state['versão_canvas']}"
         
@@ -111,47 +97,51 @@ with aba_pendentes:
         
         if st.button("💾 Enviar Romaneio Assinado"):
             if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
-                with st.spinner("🔍 Analisando rodapé do documento e alinhando assinatura..."):
+                with st.spinner("🎯 Localizando o campo 'Responsável' na última página..."):
                     try:
-                        imagem_original_rgba = imagem_original.convert("RGBA")
-                        largura_orig, altura_orig = imagem_original_rgba.size
-                        
+                        # 1. Recorta a assinatura feita no quadro branco
                         img_traco_bruto = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                         bbox_assinatura = img_traco_bruto.getbbox()
                         
                         if bbox_assinatura:
                             img_assinatura_cortada = img_traco_bruto.crop(bbox_assinatura)
                             
-                            img_cinza = imagem_original_rgba.convert("L")
-                            matriz_pixels = np.array(img_cinza)
+                            # 2. Abre o PDF original via PyMuPDF para manipular as páginas direto nele
+                            doc = fitz.open(caminho_pendente)
+                            ultima_pagina = doc[-1] # Pega estritamente a ÚLTIMA página
                             
-                            y_inicio_busca = int(altura_orig * 0.50)
-                            y_fim_busca = int(altura_orig * 0.98)
+                            # 3. Busca a coordenada exata do texto "Responsável:"
+                            retangulos_texto = ultima_pagina.search_for("Responsável:")
                             
-                            regiao_rodape = matriz_pixels[y_inicio_busca:y_fim_busca, :]
-                            medias_horizontais = regiao_rodape.mean(axis=1)
-                            
-                            linhas_escuras = np.where(medias_horizontais < 210)[0]
-                            
-                            if len(linhas_escuras) > 0:
-                                pos_y_detectado = y_inicio_busca + linhas_escuras[-1]
+                            if retangulos_texto:
+                                # Se achou o texto, pega a posição dele
+                                retangulo_alvo = retangulos_texto[0]
+                                # Define a área da assinatura (Acima do texto, alinhado à esquerda)
+                                x0 = retangulo_alvo.x0
+                                y0 = retangulo_alvo.y0 - 55  # 55 pixels acima da palavra
+                                x1 = x0 + 180                # Largura proporcional da assinatura
+                                y1 = retangulo_alvo.y0 - 5   # Margem de segurança da linha
                             else:
-                                pos_y_detectado = int(altura_orig * 0.90)
+                                # Fallback de segurança se o texto sumir: Assina no rodapé padrão
+                                largura_pag = ultima_pagina.rect.width
+                                altura_pag = ultima_pagina.rect.height
+                                x0, y0, x1, y1 = 40, altura_pag - 110, 220, altura_pag - 60
                             
-                            largura_maxima = int(largura_orig * 0.32)
-                            altura_maxima = int(altura_orig * 0.05)
-                            img_assinatura_cortada.thumbnail((largura_maxima, altura_maxima), Image.Resampling.LANCZOS)
-                            largura_ass_final, altura_ass_final = img_assinatura_cortada.size
+                            # 4. Salva a assinatura cortada em bytes para injetar no PDF
+                            img_byte_arr = io.BytesIO()
+                            img_assinatura_cortada.save(img_byte_arr, format='PNG')
+                            img_bytes = img_byte_arr.getvalue()
                             
-                            camada_colagem = Image.new("RGBA", (largura_orig, altura_orig), (255, 255, 255, 0))
+                            # 5. Insere a imagem no local exato calculado
+                            rect_insercao = fitz.Rect(x0, y0, x1, y1)
+                            ultima_pagina.insert_image(rect_insercao, stream=img_bytes)
                             
-                            pos_x = int(largura_orig * 0.06)
-                            pos_y_colagem = pos_y_detectado - altura_ass_final - 12
+                            # 6. Converte o PDF final modificado em Imagem PNG para o histórico
+                            pix = doc[0].get_pixmap(matrix=fitz.Matrix(2, 2)) if len(doc) == 1 else doc[-1].get_pixmap(matrix=fitz.Matrix(2, 2))
+                            # Se quiser o histórico como imagem unificada de todas as páginas:
+                            imagem_concluida = converter_pdf_para_imagem_continua(caminho_pendente) # Carrega atualizado
                             
-                            camada_colagem.paste(img_assinatura_cortada, (pos_x, pos_y_colagem), img_assinatura_cortada)
-                            imagem_concluida = Image.alpha_composite(imagem_original_rgba, camada_colagem).convert("RGB")
-                            
-                            # Mantém a organização salvando na pasta histórica também por transportadora
+                            # 7. Organiza o salvamento na pasta de assinados
                             pasta_salvamento_assinado = os.path.join(PASTA_ASSINADOS, trans_selecionada)
                             os.makedirs(pasta_salvamento_assinado, exist_ok=True)
                             
@@ -159,14 +149,21 @@ with aba_pendentes:
                             nome_saida = f"{nome_base}_ASSINADO.png"
                             caminho_salvamento = os.path.join(pasta_salvamento_assinado, nome_saida)
                             
-                            imagem_concluida.save(caminho_salvamento, "PNG")
+                            # Salva visualização final no histórico e fecha o PDF original deletando o pendente
+                            doc.save(caminho_pendente, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+                            doc.close()
                             
+                            # Gera o print do documento final completo com as assinaturas para o histórico
+                            imagem_final_historico = converter_pdf_para_imagem_continua(caminho_pendente)
+                            imagem_final_historico.convert("RGB").save(caminho_salvamento, "PNG")
+                            
+                            # Remove dos pendentes locais
                             if os.path.exists(caminho_pendente):
                                 os.remove(caminho_pendente)
                             
                             st.session_state["versão_canvas"] += 1
                             st.balloons()
-                            st.success(f"🎉 Perfeito! Documento assinado e salvo na pasta {trans_selecionada}.")
+                            st.success(f"🎉 Perfeito! Documento assinado digitalmente em cima do campo 'Responsável'.")
                             st.rerun()
                         else:
                             st.error("❌ Quadro em branco. Assine antes de clicar em enviar.")
@@ -176,7 +173,7 @@ with aba_pendentes:
                 st.warning("⚠️ Por favor, faça a assinatura antes de clicar em enviar.")
 
 # ==========================================
-# ✅ ABA 2: HISTÓRICO SEGURO (POR TRANSPORTADORA)
+# ✅ ABA 2: HISTÓRICO SEGURO
 # ==========================================
 with aba_assinados:
     st.subheader("Histórico geral de documentos assinados no servidor")
@@ -185,10 +182,8 @@ with aba_assinados:
     if os.path.exists(PASTA_ASSINADOS):
         for item in os.listdir(PASTA_ASSINADOS):
             caminho_subpasta = os.path.join(PASTA_ASSINADOS, item)
-            if os.path.isdir(caminho_subpasta):
-                possui_imagem = any(f.endswith((".png", ".jpg", ".jpeg")) for f in os.listdir(caminho_subpasta))
-                if possui_imagem:
-                    transportadoras_assinadas.append(item)
+            if os.path.isdir(caminho_subpasta) and any(f.endswith((".png", ".jpg", ".jpeg")) for f in os.listdir(caminho_subpasta)):
+                transportadoras_assinadas.append(item)
                     
     if not transportadoras_assinadas:
         st.info("📂 Nenhum documento assinado armazenado no servidor no momento.")
