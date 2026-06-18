@@ -97,7 +97,7 @@ with aba_pendentes:
         
         if st.button("💾 Enviar Romaneio Assinado"):
             if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
-                with st.spinner("🎯 Localizando o campo 'Responsável' na última página..."):
+                with st.spinner("🎯 Localizando o campo 'Nome' na última página..."):
                     try:
                         # 1. Recorta a assinatura feita no quadro branco
                         img_traco_bruto = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
@@ -110,22 +110,23 @@ with aba_pendentes:
                             doc = fitz.open(caminho_pendente)
                             ultima_pagina = doc[-1] # Pega estritamente a ÚLTIMA página
                             
-                            # 3. Busca a coordenada exata do texto "Responsável:"
+                            # 3. MUDANÇA AQUI: Busca a coordenada exata do texto "Nome:"
                             retangulos_texto = ultima_pagina.search_for("Nome:")
                             
                             if retangulos_texto:
-                                # Se achou o texto, pega a posição dele
+                                # Se achou o texto "Nome:", pega a posição dele
                                 retangulo_alvo = retangulos_texto[0]
-                                # Define a área da assinatura (Acima do texto, alinhado à esquerda)
+                                
+                                # Define a área da assinatura (EXATAMENTE acima do "Nome:", alinhado à esquerda)
                                 x0 = retangulo_alvo.x0
-                                y0 = retangulo_alvo.y0 - 55  # 55 pixels acima da palavra
+                                y0 = retangulo_alvo.y0 - 65  # Sobe 65 pixels para ficar acima da linha preta longa
                                 x1 = x0 + 180                # Largura proporcional da assinatura
-                                y1 = retangulo_alvo.y0 - 5   # Margem de segurança da linha
+                                y1 = retangulo_alvo.y0 - 10  # Margem para não colar em cima do texto "Nome:"
                             else:
-                                # Fallback de segurança se o texto sumir: Assina no rodapé padrão
+                                # Fallback de segurança se o texto sumir: Assina no rodapé padrão esquerdo
                                 largura_pag = ultima_pagina.rect.width
                                 altura_pag = ultima_pagina.rect.height
-                                x0, y0, x1, y1 = 40, altura_pag - 110, 220, altura_pag - 60
+                                x0, y0, x1, y1 = 40, altura_pag - 120, 220, altura_pag - 70
                             
                             # 4. Salva a assinatura cortada em bytes para injetar no PDF
                             img_byte_arr = io.BytesIO()
@@ -136,12 +137,7 @@ with aba_pendentes:
                             rect_insercao = fitz.Rect(x0, y0, x1, y1)
                             ultima_pagina.insert_image(rect_insercao, stream=img_bytes)
                             
-                            # 6. Converte o PDF final modificado em Imagem PNG para o histórico
-                            pix = doc[0].get_pixmap(matrix=fitz.Matrix(2, 2)) if len(doc) == 1 else doc[-1].get_pixmap(matrix=fitz.Matrix(2, 2))
-                            # Se quiser o histórico como imagem unificada de todas as páginas:
-                            imagem_concluida = converter_pdf_para_imagem_continua(caminho_pendente) # Carrega atualizado
-                            
-                            # 7. Organiza o salvamento na pasta de assinados
+                            # 6. Organiza o salvamento na pasta de assinados
                             pasta_salvamento_assinado = os.path.join(PASTA_ASSINADOS, trans_selecionada)
                             os.makedirs(pasta_salvamento_assinado, exist_ok=True)
                             
@@ -153,7 +149,7 @@ with aba_pendentes:
                             doc.save(caminho_pendente, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
                             doc.close()
                             
-                            # Gera o print do documento final completo com as assinaturas para o histórico
+                            # Gera o print do documento final completo com as assinaturas para o histórico do site
                             imagem_final_historico = converter_pdf_para_imagem_continua(caminho_pendente)
                             imagem_final_historico.convert("RGB").save(caminho_salvamento, "PNG")
                             
@@ -163,7 +159,7 @@ with aba_pendentes:
                             
                             st.session_state["versão_canvas"] += 1
                             st.balloons()
-                            st.success(f"🎉 Perfeito! Documento assinado digitalmente em cima do campo 'Responsável'.")
+                            st.success(f"🎉 Perfeito! Documento assinado digitalmente no canto esquerdo, acima dos dados do motorista.")
                             st.rerun()
                         else:
                             st.error("❌ Quadro em branco. Assine antes de clicar em enviar.")
