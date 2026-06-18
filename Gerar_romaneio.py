@@ -3,7 +3,7 @@ import os
 import numpy as np
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
-import fitz  # PyMuPDF para abrir o PDF dentro do site!
+import fitz  # PyMuPDF para abrir e ler o PDF de forma inteligente!
 import io
 
 # Configuração de diretórios
@@ -21,8 +21,30 @@ if "versão_canvas" not in st.session_state:
 
 aba_pendentes, aba_assinados = st.tabs(["📝 Romaneios Pendentes", "✅ Romaneios Assinados"])
 
+def obter_coordenada_assinatura_pdf(caminho_pdf):
+    """Varre o texto do PDF para achar o Y exato do bloco de assinatura"""
+    pdf_documento = fitz.open(caminho_pdf)
+    # Por padrão, vamos procurar na primeira página do romaneio
+    pagina = pdf_documento.load_page(0)
+    
+    # Busca pela palavra chave no documento nativo
+    palavras_chave = ["MOTORISTA", "ASSINATURA", "Conferente / Motorista"]
+    
+    for termo in palavras_chave:
+        retangulos_texto = pagina.search_for(termo)
+        if retangulos_texto:
+            # Pegamos o primeiro resultado encontrado
+            rect = retangulos_texto[0]
+            # O rect.y0 nos dá o topo do texto. Multiplicamos por 2 para casar com o zoom da imagem
+            y_detectado_no_pdf = rect.y0 * 2
+            pdf_documento.close()
+            return y_detectado_no_pdf
+            
+    pdf_documento.close()
+    return None
+
 def converter_pdf_para_imagem_continua(caminho_pdf):
-    """Abre o PDF (com 1 ou mais páginas) e junta tudo em uma imagem única vertical"""
+    """Abre o PDF e junta tudo em uma imagem única vertical mantendo alta qualidade"""
     pdf_documento = fitz.open(caminho_pdf)
     total_paginas = len(pdf_documento)
     
@@ -32,7 +54,7 @@ def converter_pdf_para_imagem_continua(caminho_pdf):
     
     for num_pag in range(total_paginas):
         pagina = pdf_documento.load_page(num_pag)
-        zoom = 2  # Mantém a alta qualidade do robô
+        zoom = 2  # Casado perfeitamente com o fator multiplicador de busca
         matriz = fitz.Matrix(zoom, zoom)
         pixmap = pagina.get_pixmap(matrix=matriz)
         
@@ -45,7 +67,6 @@ def converter_pdf_para_imagem_continua(caminho_pdf):
         
     pdf_documento.close()
     
-    # Cria o fundo branco longo para colar todas as páginas do PDF
     imagem_comprida = Image.new("RGBA", (largura_maxima, altura_total), (255, 255, 255, 255))
     y_offset = 0
     for img in imagens_paginas:
@@ -63,7 +84,6 @@ with aba_pendentes:
     arquivos_pendentes = []
     if os.path.exists(PASTA_PENDENTES):
         for f in os.listdir(PASTA_PENDENTES):
-            # AGORA ELE BUSCA ARQUIVOS .pdf GERADOS PELO ROBÔ 2
             if f.endswith(".pdf"):
                 arquivos_pendentes.append(f)
                 
@@ -76,11 +96,9 @@ with aba_pendentes:
         st.markdown("---")
         st.write(f"📋 **Visualizando: {arquivo_selecionado}**")
         
-        # Converte o PDF em uma imagem única na memória para o Streamlit desenhar na tela
         with st.spinner("Carregando páginas do Romaneio..."):
             imagem_original = converter_pdf_para_imagem_continua(caminho_pendente)
         
-        # Mostra o documento unificado na tela
         st.image(imagem_original, use_container_width=True)
         
         st.markdown("---")
@@ -101,9 +119,8 @@ with aba_pendentes:
         
         if st.button("💾 Enviar Romaneio Assinado"):
             if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
-                with st.spinner("🔍 Analisando documento e alinhando assinatura..."):
+                with st.spinner("🔍 Localizando campo de assinatura via leitura de texto..."):
                     try:
-                        # Processa a imagem que extraímos do PDF
                         imagem_original_rgba = imagem_original.convert("RGBA")
                         largura_orig, altura_orig = imagem_original_rgba.size
                         
@@ -113,28 +130,31 @@ with aba_pendentes:
                         if bbox_assinatura:
                             img_assinatura_cortada = img_traco_bruto.crop(bbox_assinatura)
                             
-                            img_cinza = imagem_original_rgba.convert("L")
-                            matriz_pixels = np.array(img_cinza)
+                            # 🎯 ENCONTRA DINAMICAMENTE O Y DA PALAVRA 'MOTORISTA'
+                            y_texto_detectado = obter_coordenada_assinatura_pdf(caminho_pendente)
                             
-                            # Mantém sua regra de busca de linhas escuras
-                            y_inicio_busca = int(altura_orig * 0.20)
-                            y_fim_busca = int(altura_orig * 0.45)
-                            
-                            linhas_escuras = np.where(matriz_pixels[y_inicio_busca:y_fim_busca, :].mean(axis=1) < 200)[0]
-                            
-                            if len(linhas_escuras) > 0:
-                                pos_y_detectado = y_inicio_busca + lines_escuras[-1] if 'lines_escuras' in locals() else y_inicio_busca + linhas_escuras[-1]
+                            if y_texto_detectado is not None:
+                                # Se achou o texto, posiciona um pouco acima dele para bater em cima da linha
+                                pos_y_colagem_base = int(y_texto_detectado)
+                                print(f"🎯 Texto de assinatura localizado na coordenada Y: {pos_y_colagem_base}")
                             else:
-                                pos_y_detectado = int(altura_orig * 0.31)
+                                # Caso o PDF venha sem texto (imagem escaneada), usa um backup seguro na metade superior
+                                pos_y_colagem_base = int(altura_orig * 0.32)
+                                print("⚠️ Texto não localizado no PDF. Usando posição de contingência.")
                             
-                            largura_maxima = int(largura_orig * 0.30)
-                            altura_maxima = int(altura_orig * 0.04)
+                            # Define o tamanho proporcional máximo do rabisco
+                            largura_maxima = int(largura_orig * 0.32)
+                            altura_maxima = int(altura_orig * 0.05)
                             img_assinatura_cortada.thumbnail((largura_maxima, altura_maxima), Image.Resampling.LANCZOS)
                             largura_ass_final, altura_ass_final = img_assinatura_cortada.size
                             
                             camada_colagem = Image.new("RGBA", (largura_orig, altura_orig), (255, 255, 255, 0))
+                            
+                            # Centraliza o X na parte esquerda onde fica a linha do motorista
                             pos_x = int(largura_orig * 0.06)
-                            pos_y_colagem = pos_y_detectado - altura_ass_final - 4
+                            
+                            # O Y definitivo será logo acima da palavra detectada
+                            pos_y_colagem = pos_y_colagem_base - altura_ass_final - 10
                             
                             camada_colagem.paste(img_assinatura_cortada, (pos_x, pos_y_colagem), img_assinatura_cortada)
                             imagem_concluida = Image.alpha_composite(imagem_original_rgba, camada_colagem).convert("RGB")
@@ -143,16 +163,14 @@ with aba_pendentes:
                             nome_saida = f"{nome_base}_ASSINADO.png"
                             caminho_salvamento = os.path.join(PASTA_ASSINADOS, nome_saida)
                             
-                            # 1. Salva a versão final assinada como imagem no Histórico
                             imagem_concluida.save(caminho_salvamento, "PNG")
                             
-                            # 2. Deleta o arquivo PDF original pendente
                             if os.path.exists(caminho_pendente):
                                 os.remove(caminho_pendente)
                             
                             st.session_state["versão_canvas"] += 1
                             st.balloons()
-                            st.success(f"🎉 Perfeito! Documento assinado e movido para o histórico.")
+                            st.success(f"🎉 Perfeito! Assinatura alinhada com sucesso com base no campo do documento.")
                             st.rerun()
                         else:
                             st.error("❌ Quadro em branco. Assine antes de clicar em enviar.")
@@ -178,6 +196,6 @@ with aba_assinados:
     else:
         arquivo_ver = st.selectbox("Selecione qual romaneio deseja visualizar:", arquivos_assinados, key="sb_assinados_geral")
         caminho_assinado_ver = os.path.join(PASTA_ASSINADOS, arquivo_ver)
-                    
+                            
         st.markdown("---")
         st.image(caminho_assinado_ver, use_container_width=True)
