@@ -5,6 +5,7 @@ from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 import fitz  # PyMuPDF
 import io
+import shutil
 
 # Configuração de diretórios (Estrutura com subpastas por transportadora)
 PASTA_PENDENTES = "Romaneios_Para_Assinar"
@@ -99,45 +100,35 @@ with aba_pendentes:
             if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
                 with st.spinner("🎯 Localizando o campo 'Nome' na última página..."):
                     try:
-                        # 1. Recorta a assinatura feita no quadro branco
                         img_traco_bruto = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                         bbox_assinatura = img_traco_bruto.getbbox()
                         
                         if bbox_assinatura:
                             img_assinatura_cortada = img_traco_bruto.crop(bbox_assinatura)
                             
-                            # 2. Abre o PDF original via PyMuPDF para manipular as páginas direto nele
                             doc = fitz.open(caminho_pendente)
-                            ultima_pagina = doc[-1] # Pega estritamente a ÚLTIMA página
+                            ultima_pagina = doc[-1]
                             
-                            # 3. MUDANÇA AQUI: Busca a coordenada exata do texto "Nome:"
                             retangulos_texto = ultima_pagina.search_for("Nome:")
                             
                             if retangulos_texto:
-                                # Se achou o texto "Nome:", pega a posição dele
                                 retangulo_alvo = retangulos_texto[0]
-                                
-                                # Define a área da assinatura (EXATAMENTE acima do "Nome:", alinhado à esquerda)
                                 x0 = retangulo_alvo.x0
-                                y0 = retangulo_alvo.y0 - 65  # Sobe 65 pixels para ficar acima da linha preta longa
-                                x1 = x0 + 180                # Largura proporcional da assinatura
-                                y1 = retangulo_alvo.y0 - 10  # Margem para não colar em cima do texto "Nome:"
+                                y0 = retangulo_alvo.y0 - 65  
+                                x1 = x0 + 180                
+                                y1 = retangulo_alvo.y0 - 10  
                             else:
-                                # Fallback de segurança se o texto sumir: Assina no rodapé padrão esquerdo
                                 largura_pag = ultima_pagina.rect.width
                                 altura_pag = ultima_pagina.rect.height
                                 x0, y0, x1, y1 = 40, altura_pag - 120, 220, altura_pag - 70
                             
-                            # 4. Salva a assinatura cortada em bytes para injetar no PDF
                             img_byte_arr = io.BytesIO()
                             img_assinatura_cortada.save(img_byte_arr, format='PNG')
                             img_bytes = img_byte_arr.getvalue()
                             
-                            # 5. Insere a imagem no local exato calculado
                             rect_insercao = fitz.Rect(x0, y0, x1, y1)
                             ultima_pagina.insert_image(rect_insercao, stream=img_bytes)
                             
-                            # 6. Organiza o salvamento na pasta de assinados
                             pasta_salvamento_assinado = os.path.join(PASTA_ASSINADOS, trans_selecionada)
                             os.makedirs(pasta_salvamento_assinado, exist_ok=True)
                             
@@ -145,15 +136,12 @@ with aba_pendentes:
                             nome_saida = f"{nome_base}_ASSINADO.png"
                             caminho_salvamento = os.path.join(pasta_salvamento_assinado, nome_saida)
                             
-                            # Salva visualização final no histórico e fecha o PDF original deletando o pendente
                             doc.save(caminho_pendente, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
                             doc.close()
                             
-                            # Gera o print do documento final completo com as assinaturas para o histórico do site
                             imagem_final_historico = converter_pdf_para_imagem_continua(caminho_pendente)
                             imagem_final_historico.convert("RGB").save(caminho_salvamento, "PNG")
                             
-                            # Remove dos pendentes locais
                             if os.path.exists(caminho_pendente):
                                 os.remove(caminho_pendente)
                             
@@ -194,3 +182,25 @@ with aba_assinados:
                             
         st.markdown("---")
         st.image(caminho_assinado_ver, use_container_width=True)
+
+# ==========================================
+# 🛠️ PAINEL DE LIMPEZA GERAL (RODAPÉ DO SITE)
+# ==========================================
+st.markdown("---")
+with st.expander("⚙️ Painel Avançado de Limpeza do Sistema (Zerar Tudo)"):
+    st.warning("⚠️ Esta ação apagará permanentemente todos os arquivos das pastas temporárias do servidor do site!")
+    
+    if st.button("🔥 EXCLUIR TODOS OS ARQUIVOS E ZERAR SITE"):
+        # Limpa Pendentes
+        if os.path.exists(PASTA_PENDENTES):
+            shutil.rmtree(PASTA_PENDENTES)
+            os.makedirs(PASTA_PENDENTES, exist_ok=True)
+        
+        # Limpa Assinados
+        if os.path.exists(PASTA_ASSINADOS):
+            shutil.rmtree(PASTA_ASSINADOS)
+            os.makedirs(PASTA_ASSINADOS, exist_ok=True)
+            
+        st.cache_data.clear() # Limpa o cache interno do Streamlit
+        st.success("🧹 Sucesso! Todos os arquivos locais do servidor foram excluídos do zero.")
+        st.rerun()
