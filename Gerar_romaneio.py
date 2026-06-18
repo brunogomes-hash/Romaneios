@@ -8,15 +8,13 @@ import io
 import shutil
 
 # ==============================================================================
-# 📂 CAMINHO DA PASTA SINCRONIZADA COM O SHAREPOINT/ONEDRIVE (LUFT SOLUTIONS)
+# 📂 CONFIGURAÇÃO DE PASTAS NA NUVEM (STREAMLIT CLOUD)
 # ==============================================================================
-# Caminho exato da sua máquina configurado com as barras corretas para o Python
-PASTA_DESTINO_SHAREPOINT = "C:/Users/bruno.gomes/OneDrive - luftsolutions.com.br/Romaneios/Digitalizados"
-
-# Pasta temporária local do site para receber os PDFs originais vindos do SAP
+# Mudamos para caminhos relativos para o servidor Linux da nuvem não quebrar
 PASTA_PENDENTES = "Romaneios_Para_Assinar"
+PASTA_DESTINO_SHAREPOINT = "Romaneios_Assinados_Finais" 
 
-# Garante que as pastas existam ao iniciar o sistema
+# Garante que as pastas existam no servidor
 os.makedirs(PASTA_PENDENTES, exist_ok=True)
 os.makedirs(PASTA_DESTINO_SHAREPOINT, exist_ok=True)
 
@@ -56,7 +54,7 @@ def converter_pdf_para_imagem_continua(caminho_pdf):
     return imagem_comprida
 
 def aplicar_assinatura_em_pdf(caminho_pdf, img_bytes_assinatura, trans_nome):
-    """Carimba a assinatura no PDF e move o arquivo para a pasta de sincronização do OneDrive"""
+    """Carimba a assinatura no PDF e move o arquivo para a pasta de concluídos do servidor"""
     doc = fitz.open(caminho_pdf)
     ultima_pagina = doc[-1]
     
@@ -78,7 +76,7 @@ def aplicar_assinatura_em_pdf(caminho_pdf, img_bytes_assinatura, trans_nome):
     rect_insercao = fitz.Rect(x0, y0, x1, y1)
     ultima_pagina.insert_image(rect_insercao, stream=img_bytes_assinatura)
     
-    # Define o local de salvamento final dentro da pasta sincronizada da transportadora
+    # Define o local de salvamento final dentro da pasta do servidor
     pasta_final_trans = os.path.join(PASTA_DESTINO_SHAREPOINT, trans_nome)
     os.makedirs(pasta_final_trans, exist_ok=True)
     
@@ -87,7 +85,7 @@ def aplicar_assinatura_em_pdf(caminho_pdf, img_bytes_assinatura, trans_nome):
     nome_saida_pdf = f"{nome_base}_ASSINADO.pdf"
     caminho_salvamento_final = os.path.join(pasta_final_trans, nome_saida_pdf)
     
-    # Salva o arquivo final direto na pasta do OneDrive local do computador
+    # Salva o arquivo final
     doc.save(caminho_salvamento_final, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
     doc.close()
     
@@ -105,8 +103,11 @@ with aba_pendentes:
     if os.path.exists(PASTA_PENDENTES):
         for item in os.listdir(PASTA_PENDENTES):
             caminho_subpasta = os.path.join(PASTA_PENDENTES, item)
-            if os.path.isdir(caminho_subpasta) and any(f.endswith(".pdf") for f in os.listdir(camin_subpasta)):
-                transportadoras_pendentes.append(item)
+            # CORREÇÃO CRÍTICA DO LOG: Validando de forma segura sem quebrar o laço de repetição
+            if os.path.isdir(caminho_subpasta):
+                arquivos_pasta = os.listdir(caminho_subpasta)
+                if any(f.lower().endswith(('.pdf', '.b')) for f in arquivos_pasta):
+                    transportadoras_pendentes.append(item)
                     
     if not transportadoras_pendentes:
         st.info("🎉 Nenhum romaneio pendente!")
@@ -114,7 +115,7 @@ with aba_pendentes:
         trans_selecionada = st.selectbox("📌 Selecione a Transportadora:", sorted(transportadoras_pendentes), key="sb_trans_pendentes")
         
         pasta_trans_escolhida = os.path.join(PASTA_PENDENTES, trans_selecionada)
-        arquivos_da_trans = sorted([f for f in os.listdir(pasta_trans_escolhida) if f.endswith(".pdf")])
+        arquivos_da_trans = sorted([f for f in os.listdir(pasta_trans_escolhida) if f.lower().endswith(('.pdf', '.b'))])
         
         st.markdown(f"### 📋 Romaneios para a transportadora: **{trans_selecionada}** ({len(arquivos_da_trans)} encontrados)")
         
@@ -177,7 +178,7 @@ with aba_pendentes:
                                     
                                     st.session_state["versão_canvas"] += 1
                                     st.balloons()
-                                    st.success("🎉 Assinado! O arquivo foi movido para a pasta do OneDrive local e subirá em instantes.")
+                                    st.success("🎉 Assinado com sucesso no servidor!")
                                     st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Erro operacional: {e}")
@@ -190,7 +191,7 @@ with aba_pendentes:
             texto_botao_lote = f"🔥 Assinar TODOS os {len(arquivos_da_trans)} Romaneios de uma vez"
             if st.button(texto_botao_lote, type="primary", use_container_width=True):
                 if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, 3] > 0):
-                    with st.spinner(f"⚡ Carimbando e transferindo {len(arquivos_da_trans)} PDFs para o OneDrive..."):
+                    with st.spinner(f"⚡ Carimbando e salvando {len(arquivos_da_trans)} PDFs..."):
                         try:
                             img_traco_bruto = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                             bbox_assinatura = img_traco_bruto.getbbox()
@@ -207,7 +208,7 @@ with aba_pendentes:
                                 
                                 st.session_state["versão_canvas"] += 1
                                 st.balloons()
-                                st.success(f"🚀 Todos os {len(arquivos_da_trans)} arquivos foram enviados para a pasta local sincronizada!")
+                                st.success(f"🚀 Todos os {len(arquivos_da_trans)} arquivos foram processados!")
                                 st.rerun()
                         except Exception as e:
                             st.error(f"❌ Erro no processamento em lote: {e}")
@@ -218,11 +219,8 @@ with aba_pendentes:
 # ✅ ABA 2: INFORMAÇÃO DO HISTÓRICO
 # ==========================================
 with aba_assinados:
-    st.subheader("📁 Sincronização Local com Nuvem Habilitada")
-    st.info(
-        "Os arquivos assinados são movidos imediatamente para a sua pasta sincronizada do OneDrive corporativo. "
-        "Acompanhe o ícone de nuvem azul da Microsoft perto do relógio do seu Windows para ver o progresso do upload automático."
-    )
+    st.subheader("📁 Histórico de Arquivos no Servidor Nuvem")
+    st.info("Os arquivos assinados com sucesso estão salvos temporariamente na pasta do servidor do site.")
 
 # ==========================================
 # 🛠️ PAINEL DE CONTROLE DA FILA DE ENTRADA
